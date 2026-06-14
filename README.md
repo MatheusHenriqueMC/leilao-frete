@@ -139,7 +139,11 @@ python -m client.client
 
 ## Equipe
 
-- (Nomes dos integrantes)
+- Ágata
+- Daniel Ramos
+- Felipe Leite
+- Matheus Henrique
+- Matheus Stepple
 
 ## Licença
 
