@@ -1,4 +1,4 @@
-# Freight Auction — Plataforma de Negociação de Fretes
+Plataforma de Negociação de Fretes
 
 Sistema distribuído cliente-servidor para leilão reverso de fretes. Transportadoras competem enviando lances decrescentes para carregar uma carga anunciada pelo servidor. O menor lance vence; em caso de empate, a ordem de chegada define o vencedor.
 
