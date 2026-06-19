@@ -71,7 +71,7 @@ class FreightAuctionServicer:
         raise NotImplementedError('Method not implemented!')
 
     def SubscribeUpdates(self, request, context):
-        """Inscreve-se para receber notificações de novos lances
+        """Inscreve-se para receber notificações de novos lances e encerramento
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')

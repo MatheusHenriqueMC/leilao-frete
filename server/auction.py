@@ -9,7 +9,7 @@ o estado é protegido por threading.Lock para garantir exclusão mútua:
 
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -29,51 +29,44 @@ class Carga:
 
 class AuctionState:
     """
-    Estado centralizado do leilão reverso.
+    estado centralizado do leilão.
 
-    Estrutura em memória:
+    estrutura em memória:
     - carga: dados da carga anunciada (imutável após criação)
     - menor_lance: lance vencedor atual (None se nenhum lance foi feito)
     - historico_lances: lista ordenada de todos os lances válidos aceitos
-    - participantes: set de IDs das transportadoras conectadas (para notificações)
+    - participantes: set de IDs das transportadoras conectadas
+    - encerrado: flag que indica se o leilão foi finalizado
     - _lock: threading.Lock para sincronização da seção crítica
-    Invariantes:
-    - menor_lance é sempre o primeiro elemento do historico (se existir)
-    - historico_lances é ordenado por (valor ASC, timestamp_ms ASC)
-    - timestamp_ms é capturado dentro do lock para garantir ordenação real
     """
 
     def __init__(self, descricao_carga: str, valor_inicial: float):
         # Dados da carga (imutável)
         self.carga = Carga(descricao=descricao_carga, valor_inicial=valor_inicial)
 
-        # Estado do Leilão (protegido pelo lock)
+        # Estado do leilão (protegido pelo lock)
         self.menor_lance: Lance | None = None
         self.historico_lances: list[Lance] = []
         self.participantes: set[str] = set()
+        self.encerrado: bool = False
 
-        # Lock para sincronização — protege TODA modificação de estado
+        # Lock para sincronização
         self._lock = threading.Lock()
 
     def registrar_lance(self, valor: float, transportadora_id: str) -> tuple[bool, str, float]:
         """
         tenta registrar um novo lance no leilão.
-        A seção crítica inteira (validação + registro + timestamp) acontece
-        dentro do lock para garantir atomicidade.
-        Args:
-            valor: Valor do lance proposto
-            transportadora_id: ID da transportadora que está dando o lance
-        Returns:
-            Tupla (aceito, mensagem, menor_lance_atual):
-            - aceito: True se o lance foi registrado
-            - mensagem: Feedback sobre o resultado
-            - menor_lance_atual: Valor do menor lance após a operação
+
+        returns:
+            Tupla (aceito, mensagem, menor_lance_atual)
         """
         with self._lock:
-            # --- INÍCIO DA SEÇÃO CRÍTICA ---
+            # Verifica se o leilão já foi encerrado
+            if self.encerrado:
+                lance_atual = self.menor_lance.valor if self.menor_lance else self.carga.valor_inicial
+                return (False, "Leilão encerrado. Não é possível registrar novos lances.", lance_atual)
 
             # Timestamp capturado DENTRO do lock
-            # Isso garante que a ordem do timestamp == ordem de aquisição do lock
             timestamp_ms = int(time.time() * 1000)
 
             # Validação: valor deve ser positivo
@@ -102,16 +95,8 @@ class AuctionState:
 
             return (True, "Lance registrado com sucesso!", novo_lance.valor)
 
-            # --- FIM DA SEÇÃO CRÍTICA ---
-
     def obter_status(self) -> dict:
-        """
-        Retorna o estado atual do leilão.
-        Leitura também é feita dentro do lock para garantir consistência
-        (não ler um estado parcialmente atualizado).
-        Returns:
-            Dicionário com o estado atual do leilão
-        """
+        """retorna o estado atual do leilão."""
         with self._lock:
             if self.menor_lance:
                 return {
@@ -119,11 +104,41 @@ class AuctionState:
                     "transportadora_lider": self.menor_lance.transportadora_id,
                     "timestamp_ms": self.menor_lance.timestamp_ms,
                     "total_lances": len(self.historico_lances),
+                    "encerrado": self.encerrado,
                 }
             else:
                 return {
                     "menor_lance": self.carga.valor_inicial,
                     "transportadora_lider": "Nenhum lance registrado",
+                    "timestamp_ms": 0,
+                    "total_lances": 0,
+                    "encerrado": self.encerrado,
+                }
+
+    def encerrar_leilao(self) -> dict:
+        """
+        encerra o leilão e retorna os dados do vencedor.
+
+        returns:
+            Dicionário com informações do vencedor ou indicação de que
+            ninguém deu lance.
+        """
+        with self._lock:
+            self.encerrado = True
+
+            if self.menor_lance:
+                return {
+                    "teve_vencedor": True,
+                    "vencedor_id": self.menor_lance.transportadora_id,
+                    "valor_final": self.menor_lance.valor,
+                    "timestamp_ms": self.menor_lance.timestamp_ms,
+                    "total_lances": len(self.historico_lances),
+                }
+            else:
+                return {
+                    "teve_vencedor": False,
+                    "vencedor_id": "",
+                    "valor_final": self.carga.valor_inicial,
                     "timestamp_ms": 0,
                     "total_lances": 0,
                 }
@@ -139,6 +154,6 @@ class AuctionState:
             self.participantes.discard(transportadora_id)
 
     def obter_participantes(self) -> set[str]:
-        """Retorna cópia do set de participantes (para iterar fora do lock)."""
+        """Retorna cópia do set de participantes."""
         with self._lock:
             return self.participantes.copy()

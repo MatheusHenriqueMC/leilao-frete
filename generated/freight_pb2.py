@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rfreight.proto\x12\x07\x66reight\"6\n\nBidRequest\x12\r\n\x05valor\x18\x01 \x01(\x02\x12\x19\n\x11transportadora_id\x18\x02 \x01(\t\"J\n\x0b\x42idResponse\x12\x0e\n\x06\x61\x63\x65ito\x18\x01 \x01(\x08\x12\x19\n\x11menor_lance_atual\x18\x02 \x01(\x02\x12\x10\n\x08mensagem\x18\x03 \x01(\t\"\x0f\n\rStatusRequest\"l\n\x0eStatusResponse\x12\x13\n\x0bmenor_lance\x18\x01 \x01(\x02\x12\x1c\n\x14transportadora_lider\x18\x02 \x01(\t\x12\x11\n\ttimestamp\x18\x03 \x01(\x03\x12\x14\n\x0ctotal_lances\x18\x04 \x01(\x05\"0\n\x13SubscriptionRequest\x12\x19\n\x11transportadora_id\x18\x01 \x01(\t\"U\n\rAuctionUpdate\x12\x13\n\x0bmenor_lance\x18\x01 \x01(\x02\x12\x1c\n\x14transportadora_lider\x18\x02 \x01(\t\x12\x11\n\ttimestamp\x18\x03 \x01(\x03\x32\xd1\x01\n\x0e\x46reightAuction\x12\x35\n\x08PlaceBid\x12\x13.freight.BidRequest\x1a\x14.freight.BidResponse\x12<\n\tGetStatus\x12\x16.freight.StatusRequest\x1a\x17.freight.StatusResponse\x12J\n\x10SubscribeUpdates\x12\x1c.freight.SubscriptionRequest\x1a\x16.freight.AuctionUpdate0\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rfreight.proto\x12\x07\x66reight\"6\n\nBidRequest\x12\r\n\x05valor\x18\x01 \x01(\x02\x12\x19\n\x11transportadora_id\x18\x02 \x01(\t\"J\n\x0b\x42idResponse\x12\x0e\n\x06\x61\x63\x65ito\x18\x01 \x01(\x08\x12\x19\n\x11menor_lance_atual\x18\x02 \x01(\x02\x12\x10\n\x08mensagem\x18\x03 \x01(\t\"\x0f\n\rStatusRequest\"\x7f\n\x0eStatusResponse\x12\x13\n\x0bmenor_lance\x18\x01 \x01(\x02\x12\x1c\n\x14transportadora_lider\x18\x02 \x01(\t\x12\x11\n\ttimestamp\x18\x03 \x01(\x03\x12\x14\n\x0ctotal_lances\x18\x04 \x01(\x05\x12\x11\n\tencerrado\x18\x05 \x01(\x08\"0\n\x13SubscriptionRequest\x12\x19\n\x11transportadora_id\x18\x01 \x01(\t\"z\n\rAuctionUpdate\x12\x13\n\x0bmenor_lance\x18\x01 \x01(\x02\x12\x1c\n\x14transportadora_lider\x18\x02 \x01(\t\x12\x11\n\ttimestamp\x18\x03 \x01(\x03\x12\x11\n\tencerrado\x18\x04 \x01(\x08\x12\x10\n\x08mensagem\x18\x05 \x01(\t2\xd1\x01\n\x0e\x46reightAuction\x12\x35\n\x08PlaceBid\x12\x13.freight.BidRequest\x1a\x14.freight.BidResponse\x12<\n\tGetStatus\x12\x16.freight.StatusRequest\x1a\x17.freight.StatusResponse\x12J\n\x10SubscribeUpdates\x12\x1c.freight.SubscriptionRequest\x1a\x16.freight.AuctionUpdate0\x01\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -38,11 +38,11 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_STATUSREQUEST']._serialized_start=158
   _globals['_STATUSREQUEST']._serialized_end=173
   _globals['_STATUSRESPONSE']._serialized_start=175
-  _globals['_STATUSRESPONSE']._serialized_end=283
-  _globals['_SUBSCRIPTIONREQUEST']._serialized_start=285
-  _globals['_SUBSCRIPTIONREQUEST']._serialized_end=333
-  _globals['_AUCTIONUPDATE']._serialized_start=335
-  _globals['_AUCTIONUPDATE']._serialized_end=420
-  _globals['_FREIGHTAUCTION']._serialized_start=423
-  _globals['_FREIGHTAUCTION']._serialized_end=632
+  _globals['_STATUSRESPONSE']._serialized_end=302
+  _globals['_SUBSCRIPTIONREQUEST']._serialized_start=304
+  _globals['_SUBSCRIPTIONREQUEST']._serialized_end=352
+  _globals['_AUCTIONUPDATE']._serialized_start=354
+  _globals['_AUCTIONUPDATE']._serialized_end=476
+  _globals['_FREIGHTAUCTION']._serialized_start=479
+  _globals['_FREIGHTAUCTION']._serialized_end=688
 # @@protoc_insertion_point(module_scope)

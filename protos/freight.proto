@@ -10,7 +10,7 @@ service FreightAuction {
   // Consulta estado atual (STATUS)
   rpc GetStatus (StatusRequest) returns (StatusResponse);
 
-  // Inscreve-se para receber notificações de novos lances
+  // Inscreve-se para receber notificações de novos lances e encerramento
   rpc SubscribeUpdates (SubscriptionRequest) returns (stream AuctionUpdate);
 }
 
@@ -34,6 +34,7 @@ message StatusResponse {
   string transportadora_lider = 2;
   int64 timestamp = 3;
   int32 total_lances = 4;
+  bool encerrado = 5;
 }
 
 message SubscriptionRequest {
@@ -44,4 +45,6 @@ message AuctionUpdate {
   float menor_lance = 1;
   string transportadora_lider = 2;
   int64 timestamp = 3;
+  bool encerrado = 4;
+  string mensagem = 5;
 }
