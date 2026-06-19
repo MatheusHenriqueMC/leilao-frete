@@ -2,7 +2,7 @@
 
 Sistema distribuído cliente-servidor para leilão reverso de fretes. Transportadoras competem enviando lances decrescentes para carregar uma carga anunciada pelo servidor. O menor lance vence; em caso de empate, a ordem de chegada define o vencedor.
 
-> **Status atual:** Entrega 2 — Protocolo gRPC e Modelagem
+> **Status atual:** Entrega 3 — Servidor multicliente e comandos via console
 
 ## Tecnologias Escolhidas
 
@@ -24,19 +24,20 @@ Sistema distribuído cliente-servidor para leilão reverso de fretes. Transporta
 ```
 freight-auction/
 ├── protos/
-│   └── freight.proto          # Definições Protocol Buffers (mensagens + serviço)
+│   └── freight.proto              # Definições Protocol Buffers
 ├── server/
 │   ├── __init__.py
-│   ├── auction.py             # Modelagem do estado central em memória
-│   └── server.py              # Servidor gRPC (porta 50051)
+│   ├── auction.py                 # Estado central em memória com Lock
+│   └── server.py                  # Servidor gRPC multicliente (porta 50051)
 ├── client/
-│   └── __init__.py
+│   ├── __init__.py
+│   └── client.py                  # Cliente console (BID, STATUS, SAIR)
 ├── generated/
 │   ├── __init__.py
-│   ├── freight_pb2.py         # Stubs gerados — mensagens
-│   └── freight_pb2_grpc.py    # Stubs gerados — serviço
+│   ├── freight_pb2.py             # Stubs gerados — mensagens
+│   └── freight_pb2_grpc.py        # Stubs gerados — serviço
 ├── docs/
-│   └── protocolo.md           # Documentação detalhada do protocolo
+│   └── protocolo.md               # Documentação detalhada do protocolo
 ├── requirements.txt
 └── README.md
 ```
@@ -117,7 +118,7 @@ cd freight-auction
 pip install -r requirements.txt
 ```
 
-### Gerar stubs gRPC
+### Gerar stubs gRPC (caso não estejam no repo)
 
 ```bash
 python -m grpc_tools.protoc -I protos/ --python_out=generated/ --grpc_python_out=generated/ protos/freight.proto
@@ -129,21 +130,95 @@ python -m grpc_tools.protoc -I protos/ --python_out=generated/ --grpc_python_out
 python -m server.server
 ```
 
-O servidor inicia na porta `50051`.
+O servidor inicia na porta `50051` e exibe logs de todas as operações no console.
 
 ### Executar o cliente
+
+Em outro terminal:
 
 ```bash
 python -m client.client
 ```
 
+O cliente pedirá o ID da transportadora e aceitará os seguintes comandos:
+
+```
+BID <valor>    — Enviar um lance (ex: BID 5000)
+STATUS         — Consultar estado atual do leilão
+SAIR           — Desconectar do servidor
+```
+
+### Simulando lances concorrentes de múltiplas transportadoras
+
+Para testar concorrência, abra 3 terminais:
+
+**Terminal 1 — Servidor:**
+```bash
+python -m server.server
+```
+
+**Terminal 2 — Transportadora A:**
+```bash
+python -m client.client
+# ID: TranspA
+# >>> BID 8000
+# >>> STATUS
+```
+
+**Terminal 3 — Transportadora B:**
+```bash
+python -m client.client
+# ID: TranspB
+# >>> BID 5000     (aceito — menor que 8000)
+# >>> BID 9000     (rejeitado — maior que 5000)
+# >>> STATUS       (mostra TranspB como líder)
+```
+
+Ao executar `BID 5000` no Terminal 3, o Terminal 2 (TranspA) recebe automaticamente a notificação:
+
+```
+[NOTIFICAÇÃO] Novo menor lance: R$ 5000.00 por 'TranspB' (timestamp: 1718762959317)
+```
+
+### Verificando ordenação por ordem de chegada (desempate)
+
+Para testar o cenário de empate, ambas as transportadoras tentam dar o mesmo lance:
+
+**Terminal 2 — TranspA:**
+```
+>>> BID 3000
+  ✓ Lance registrado com sucesso! | Menor lance: R$ 3000.00
+```
+
+**Terminal 3 — TranspB (imediatamente depois):**
+```
+>>> BID 3000
+  ✗ Lance deve ser menor que 3000.0. | Menor lance: R$ 3000.00
+```
+
+O lance de TranspB é rejeitado porque TranspA adquiriu o lock primeiro. O servidor garante que **não existe empate** — o lock serializa os acessos e o primeiro a entrar na seção crítica vence.
+
+### Logs do servidor
+
+O servidor exibe logs estruturados para todas as operações:
+
+```
+[2025-06-19 01:29:17] INFO - Leilão iniciado: 'Carga de exemplo — 20 toneladas, São Paulo → Recife' | Valor inicial: R$ 10000.00
+[2025-06-19 01:29:17] INFO - Servidor rodando na porta 50051. Ctrl+C para parar.
+[2025-06-19 01:29:19] INFO - Lance recebido: R$ 8000.00 da transportadora 'TranspA'
+[2025-06-19 01:29:19] INFO - Lance aceito! Novo menor lance: R$ 8000.00
+[2025-06-19 01:29:19] INFO - Notificação enviada para 1 participante(s).
+[2025-06-19 01:29:19] INFO - Status solicitado. Menor lance: R$ 8000.00
+[2025-06-19 01:29:22] INFO - Lance recebido: R$ 5000.00 da transportadora 'TranspB'
+[2025-06-19 01:29:22] INFO - Lance aceito! Novo menor lance: R$ 5000.00
+[2025-06-19 01:29:22] INFO - Notificação enviada para 2 participante(s).
+[2025-06-19 01:29:25] INFO - Lance recebido: R$ 7000.00 da transportadora 'TranspC'
+[2025-06-19 01:29:25] INFO - Lance rejeitado: Lance deve ser menor que 5000.0.
+```
+
 ## Equipe
 
-- Ágata
-- Daniel Ramos
-- Felipe Leite
-- Matheus Henrique
-- Matheus Stepple
+- (Nomes dos integrantes)
 
 ## Licença
 
