@@ -118,12 +118,6 @@ cd freight-auction
 pip install -r requirements.txt
 ```
 
-### Gerar stubs gRPC (caso não estejam no repo)
-
-```bash
-python -m grpc_tools.protoc -I protos/ --python_out=generated/ --grpc_python_out=generated/ protos/freight.proto
-```
-
 ### Executar o servidor
 
 ```bash
@@ -177,7 +171,7 @@ python -m client.client
 Ao executar `BID 5000` no Terminal 3, o Terminal 2 (TranspA) recebe automaticamente a notificação:
 
 ```
-[NOTIFICAÇÃO] Novo menor lance: R$ 5000.00 por 'TranspB' (timestamp: 1718762959317)
+[NOTIFICAÇÃO] Novo menor lance: R$ 5000.00 por 'TranspB' (timestamp: )
 ```
 
 ### Verificando ordenação por ordem de chegada (desempate)
@@ -218,7 +212,11 @@ O servidor exibe logs estruturados para todas as operações:
 
 ## Equipe
 
-- (Nomes dos integrantes)
+- Ágata
+- Daniel Ramos
+- Felipe Leite
+- Matheus Henrique
+- Matheus Stepple
 
 ## Licença
 
