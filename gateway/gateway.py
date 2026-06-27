@@ -1,9 +1,13 @@
 """
-WebSocket Gateway — async_mode="threading" com HTTP long-polling.
+Gateway (BFF) — async_mode="threading" com HTTP long-polling.
 
-Não usa eventlet para evitar conflito com gRPC (C extension + monkey_patch
+Traduz eventos Socket.IO do navegador em chamadas gRPC para os microsservicos:
+- login / create_carrier  -> auth-service
+- restante (leiloes, lances, status, historico, stream) -> auction-service
+
+Nao usa eventlet para evitar conflito com gRPC (C extension + monkey_patch
 causam fechamento imediato de WebSocket). Long-polling via polling transport
-funciona perfeitamente para leilão com poucos usuários simultâneos.
+funciona bem para leilao com poucos usuarios simultaneos.
 """
 
 import sys
@@ -20,17 +24,20 @@ import grpc
 
 load_dotenv()
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "generated"))
+sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "generated"))
 
-from generated import freight_pb2, freight_pb2_grpc
+import auth_pb2, auth_pb2_grpc
+import auction_pb2, auction_pb2_grpc
 
 logging.basicConfig(level=logging.INFO,
                     format="[%(asctime)s] GATEWAY %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-GRPC_HOST    = os.environ.get("GRPC_HOST", "localhost")
-GRPC_PORT    = os.environ.get("GRPC_PORT", "50051")
+AUTH_HOST    = os.environ.get("AUTH_HOST", "localhost")
+AUTH_PORT    = os.environ.get("AUTH_PORT", "50052")
+AUCTION_HOST = os.environ.get("AUCTION_HOST", "localhost")
+AUCTION_PORT = os.environ.get("AUCTION_PORT", "50051")
 GATEWAY_PORT = int(os.environ.get("GATEWAY_PORT", "5000"))
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:5173")
 
@@ -44,22 +51,33 @@ socketio = SocketIO(
     engineio_logger=False,
 )
 
-# ── gRPC stub ─────────────────────────────────────────────────────────────────
+# ── Stubs gRPC (um por microsservico) ─────────────────────────────────────────
 
-_stub: freight_pb2_grpc.FreightAuctionStub | None = None
+_auth_stub: auth_pb2_grpc.AuthServiceStub | None = None
+_auction_stub: auction_pb2_grpc.AuctionServiceStub | None = None
 _stub_lock = threading.Lock()
 
 
-def get_stub() -> freight_pb2_grpc.FreightAuctionStub:
-    global _stub
+def get_auth_stub() -> auth_pb2_grpc.AuthServiceStub:
+    global _auth_stub
     with _stub_lock:
-        if _stub is None:
-            ch = grpc.insecure_channel(f"{GRPC_HOST}:{GRPC_PORT}")
-            _stub = freight_pb2_grpc.FreightAuctionStub(ch)
-            logger.info("gRPC conectado em %s:%s", GRPC_HOST, GRPC_PORT)
-        return _stub
+        if _auth_stub is None:
+            ch = grpc.insecure_channel(f"{AUTH_HOST}:{AUTH_PORT}")
+            _auth_stub = auth_pb2_grpc.AuthServiceStub(ch)
+            logger.info("gRPC auth conectado em %s:%s", AUTH_HOST, AUTH_PORT)
+        return _auth_stub
 
-# ── Streams por leilão (threads OS reais — sem conflito com gRPC) ─────────────
+
+def get_auction_stub() -> auction_pb2_grpc.AuctionServiceStub:
+    global _auction_stub
+    with _stub_lock:
+        if _auction_stub is None:
+            ch = grpc.insecure_channel(f"{AUCTION_HOST}:{AUCTION_PORT}")
+            _auction_stub = auction_pb2_grpc.AuctionServiceStub(ch)
+            logger.info("gRPC auction conectado em %s:%s", AUCTION_HOST, AUCTION_PORT)
+        return _auction_stub
+
+# ── Streams por leilao (threads OS reais — sem conflito com gRPC) ─────────────
 
 _streams: dict[int, threading.Thread] = {}
 _streams_lock = threading.Lock()
@@ -70,14 +88,14 @@ def _room(leilao_id: int) -> str:
 
 
 def _stream_thread(leilao_id: int):
-    """Thread OS real que mantém stream gRPC e faz broadcast via socketio."""
+    """Thread OS real que mantem stream gRPC e faz broadcast via socketio."""
     room = _room(leilao_id)
     while True:
         try:
-            stub = get_stub()
+            stub = get_auction_stub()
             logger.info("Stream ativa para leilão %d.", leilao_id)
             for update in stub.SubscribeUpdates(
-                freight_pb2.SubscriptionRequest(
+                auction_pb2.SubscriptionRequest(
                     transportadora_id="gateway",
                     leilao_id=leilao_id,
                 ),
@@ -125,10 +143,10 @@ def start_stream(leilao_id: int):
 
 
 def _carregar_streams_existentes():
-    time.sleep(3)  # aguarda gRPC server ficar pronto
+    time.sleep(3)  # aguarda auction-service ficar pronto
     try:
-        resp = get_stub().ListAuctions(
-            freight_pb2.ListAuctionsRequest(apenas_ativos=True),
+        resp = get_auction_stub().ListAuctions(
+            auction_pb2.ListAuctionsRequest(apenas_ativos=True),
             wait_for_ready=True,
         )
         for l in resp.leiloes:
@@ -159,8 +177,8 @@ def on_login(data):
     username = data.get("username", "").strip()
     password = data.get("password", "").strip()
     try:
-        resp = get_stub().Login(
-            freight_pb2.LoginRequest(username=username, password=password)
+        resp = get_auth_stub().Login(
+            auth_pb2.LoginRequest(username=username, password=password)
         )
         emit("login_response", {
             "sucesso":  resp.sucesso,
@@ -172,10 +190,26 @@ def on_login(data):
         emit("error", {"mensagem": f"Erro no servidor: {e.details()}"})
 
 
+@socketio.on("create_carrier")
+def on_create_carrier(data):
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+    if not username or not password:
+        emit("error", {"mensagem": "Usuário e senha obrigatórios."})
+        return
+    try:
+        resp = get_auth_stub().CreateCarrier(
+            auth_pb2.CreateCarrierRequest(username=username, password=password)
+        )
+        emit("create_carrier_response", {"sucesso": resp.sucesso, "mensagem": resp.mensagem})
+    except grpc.RpcError as e:
+        emit("error", {"mensagem": f"Erro: {e.details()}"})
+
+
 @socketio.on("create_auction")
 def on_create_auction(data):
     try:
-        resp = get_stub().CreateAuction(freight_pb2.CreateAuctionRequest(
+        resp = get_auction_stub().CreateAuction(auction_pb2.CreateAuctionRequest(
             titulo=data.get("titulo", ""),
             descricao=data.get("descricao", ""),
             especificacoes=data.get("especificacoes", ""),
@@ -195,29 +229,13 @@ def on_create_auction(data):
         emit("error", {"mensagem": f"Erro ao criar leilão: {e.details()}"})
 
 
-@socketio.on("create_carrier")
-def on_create_carrier(data):
-    username = data.get("username", "").strip()
-    password = data.get("password", "").strip()
-    if not username or not password:
-        emit("error", {"mensagem": "Usuário e senha obrigatórios."})
-        return
-    try:
-        resp = get_stub().CreateCarrier(
-            freight_pb2.CreateCarrierRequest(username=username, password=password)
-        )
-        emit("create_carrier_response", {"sucesso": resp.sucesso, "mensagem": resp.mensagem})
-    except grpc.RpcError as e:
-        emit("error", {"mensagem": f"Erro: {e.details()}"})
-
-
 @socketio.on("join_auction")
 def on_join_auction(data):
     leilao_id = int(data.get("leilao_id", 0))
     join_room(_room(leilao_id))
     start_stream(leilao_id)
     emit("joined_auction", {"leilao_id": leilao_id,
-                             "mensagem": f"Inscrito no leilão {leilao_id}."})
+                            "mensagem": f"Inscrito no leilão {leilao_id}."})
 
 
 @socketio.on("bid")
@@ -234,8 +252,8 @@ def on_bid(data):
         emit("error", {"mensagem": "Valor inválido."})
         return
     try:
-        resp = get_stub().PlaceBid(
-            freight_pb2.BidRequest(valor=valor, transportadora_id=tid, leilao_id=leilao_id)
+        resp = get_auction_stub().PlaceBid(
+            auction_pb2.BidRequest(valor=valor, transportadora_id=tid, leilao_id=leilao_id)
         )
         emit("bid_response", {
             "aceito":            resp.aceito,
@@ -251,7 +269,7 @@ def on_bid(data):
 def on_status(data):
     leilao_id = int(data.get("leilao_id", 0))
     try:
-        r = get_stub().GetStatus(freight_pb2.StatusRequest(leilao_id=leilao_id))
+        r = get_auction_stub().GetStatus(auction_pb2.StatusRequest(leilao_id=leilao_id))
         emit("status_response", {
             "leilao_id":            r.leilao_id,
             "titulo":               r.titulo,
@@ -275,7 +293,7 @@ def on_status(data):
 def on_history(data):
     leilao_id = int(data.get("leilao_id", 0))
     try:
-        r = get_stub().GetHistory(freight_pb2.HistoryRequest(leilao_id=leilao_id))
+        r = get_auction_stub().GetHistory(auction_pb2.HistoryRequest(leilao_id=leilao_id))
         emit("history_response", {
             "lances": [
                 {"valor": l.valor, "transportadora_id": l.transportadora_id,
@@ -289,7 +307,7 @@ def on_history(data):
 
 @socketio.on("start_countdown")
 def on_start_countdown(data):
-    """Admin inicia o countdown — broadcast para todos na room do leilão."""
+    """Admin inicia o countdown — broadcast para todos na room do leilao."""
     leilao_id = int(data.get("leilao_id", 0))
     socketio.emit("countdown_started", {"leilao_id": leilao_id}, to=_room(leilao_id))
     logger.info("Countdown iniciado para leilão %d", leilao_id)
@@ -311,8 +329,8 @@ def on_close_auction(data):
         emit("error", {"mensagem": "ID do admin obrigatório."})
         return
     try:
-        r = get_stub().CloseAuction(
-            freight_pb2.CloseRequest(admin_id=admin_id, leilao_id=leilao_id)
+        r = get_auction_stub().CloseAuction(
+            auction_pb2.CloseRequest(admin_id=admin_id, leilao_id=leilao_id)
         )
         emit("close_response", {
             "sucesso":      r.sucesso,
@@ -330,8 +348,8 @@ def on_close_auction(data):
 def on_list_auctions(data):
     apenas_ativos = bool(data.get("apenas_ativos", True))
     try:
-        r = get_stub().ListAuctions(
-            freight_pb2.ListAuctionsRequest(apenas_ativos=apenas_ativos)
+        r = get_auction_stub().ListAuctions(
+            auction_pb2.ListAuctionsRequest(apenas_ativos=apenas_ativos)
         )
         emit("list_auctions_response", {"leiloes": [_summary_dict(l) for l in r.leiloes]})
     except grpc.RpcError as e:
@@ -342,8 +360,8 @@ def on_list_auctions(data):
 def on_auction_detail(data):
     leilao_id = int(data.get("leilao_id", 0))
     try:
-        r = get_stub().GetAuctionDetail(
-            freight_pb2.AuctionDetailRequest(leilao_id=leilao_id)
+        r = get_auction_stub().GetAuctionDetail(
+            auction_pb2.AuctionDetailRequest(leilao_id=leilao_id)
         )
         emit("auction_detail_response", {
             "leilao":  _summary_dict(r.leilao),
@@ -365,8 +383,8 @@ def on_carrier_history(data):
         emit("error", {"mensagem": "ID da transportadora obrigatório."})
         return
     try:
-        r = get_stub().GetCarrierHistory(
-            freight_pb2.CarrierHistoryRequest(transportadora_id=tid)
+        r = get_auction_stub().GetCarrierHistory(
+            auction_pb2.CarrierHistoryRequest(transportadora_id=tid)
         )
         emit("carrier_history_response", {"leiloes": [_summary_dict(l) for l in r.leiloes]})
     except grpc.RpcError as e:
@@ -377,8 +395,8 @@ def on_carrier_history(data):
 def on_resolve_code(data):
     code = data.get("join_code", "").strip()
     try:
-        r = get_stub().ResolveJoinCode(
-            freight_pb2.ResolveJoinCodeRequest(join_code=code)
+        r = get_auction_stub().ResolveJoinCode(
+            auction_pb2.ResolveJoinCodeRequest(join_code=code)
         )
         emit("resolve_code_response", {
             "encontrado": r.encontrado,
@@ -416,7 +434,8 @@ def _summary_dict(s) -> dict:
 
 @app.route("/health")
 def health():
-    return {"status": "ok", "grpc": f"{GRPC_HOST}:{GRPC_PORT}"}
+    return {"status": "ok", "auth": f"{AUTH_HOST}:{AUTH_PORT}",
+            "auction": f"{AUCTION_HOST}:{AUCTION_PORT}"}
 
 
 if __name__ == "__main__":

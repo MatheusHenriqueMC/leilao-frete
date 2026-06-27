@@ -1,6 +1,10 @@
 """
-Estado em memória de um leilão individual (protegido por Lock).
-O Lock é a fonte de verdade para concorrência; persistência ocorre fora dele.
+Estado em memoria de um leilao individual (protegido por Lock).
+O Lock e a fonte de verdade para concorrencia; persistencia ocorre fora dele.
+
+NUCLEO DE SINCRONIZACAO do projeto: registrar_lance() valida e registra
+dentro do mesmo Lock, capturando o timestamp dentro da secao critica, de modo
+que a ordem de chegada define o vencedor e nao ha empate.
 """
 
 import threading
@@ -8,7 +12,7 @@ import time
 import logging
 from dataclasses import dataclass
 
-from server.database import Database
+from database import Database
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +25,7 @@ class Lance:
 
 
 class AuctionState:
-    """Estado centralizado de UM leilão reverso."""
+    """Estado centralizado de UM leilao reverso."""
 
     def __init__(
         self,
@@ -107,7 +111,7 @@ class AuctionState:
 
         return True, "Lance registrado com sucesso!", lance_para_persistir.valor
 
-    # ── Status / Histórico ─────────────────────────────────────────────────────
+    # ── Status / Historico ─────────────────────────────────────────────────────
 
     def obter_status(self) -> dict:
         with self._lock:

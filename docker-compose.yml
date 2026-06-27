@@ -1,5 +1,5 @@
 services:
-  # Banco de dados PostgreSQL
+  # Banco de dados PostgreSQL (compartilhado; cada servico e dono das suas tabelas)
   db:
     image: postgres:16-alpine
     environment:
@@ -16,14 +16,36 @@ services:
       timeout: 5s
       retries: 5
 
-  # Servidor gRPC
-  grpc-server:
-    build: .
-    command: python -m server.server
+  # auth-service: login e cadastro de transportadora (dono da tabela transportadoras)
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth/Dockerfile
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/freight_auction
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: admin123
+      AUTH_PORT: "50052"
+    ports:
+      - "50052:50052"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('localhost',50052)); s.close()\""]
+      interval: 5s
+      timeout: 4s
+      retries: 10
+      start_period: 10s
+
+  # auction-service: leiloes, lances (sincronizacao via Lock), status, historico, streaming
+  auction-service:
+    build:
+      context: .
+      dockerfile: services/auction/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/freight_auction
+      AUCTION_PORT: "50051"
     ports:
       - "50051:50051"
     depends_on:
@@ -36,19 +58,24 @@ services:
       retries: 10
       start_period: 10s
 
-  # WebSocket Gateway
+  # gateway (BFF): traduz Socket.IO para gRPC, roteando para auth e auction
   gateway:
-    build: .
-    command: python -m gateway.gateway
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
     environment:
-      GRPC_HOST: grpc-server
-      GRPC_PORT: "50051"
+      AUTH_HOST: auth-service
+      AUTH_PORT: "50052"
+      AUCTION_HOST: auction-service
+      AUCTION_PORT: "50051"
       GATEWAY_PORT: "5000"
       CORS_ORIGINS: "http://localhost:5173,http://localhost:3000"
     ports:
       - "5000:5000"
     depends_on:
-      grpc-server:
+      auth-service:
+        condition: service_healthy
+      auction-service:
         condition: service_healthy
 
 volumes:
