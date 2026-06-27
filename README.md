@@ -2,22 +2,26 @@
 
 Sistema distribuído cliente-servidor para leilão reverso de fretes. Transportadoras competem enviando lances decrescentes para carregar uma carga anunciada pelo servidor. O menor lance vence; em caso de empate, a ordem de chegada define o vencedor.
 
-> **Status atual:** Entrega 3 — Servidor multicliente e comandos via console
+> **Status atual:** Entrega 4 — Interface gráfica completa, broadcast automático de lances e sincronização atômica
 
 ## Tecnologias Escolhidas
 
 | Componente | Tecnologia | Justificativa |
 |---|---|---|
-| Linguagem | Python 3.10+ | Familiaridade da equipe, suporte oficial ao gRPC e stdlib completa para concorrência |
+| Linguagem | Python 3.12 | Familiaridade da equipe, suporte oficial ao gRPC e stdlib completa para concorrência |
 | Comunicação | gRPC + Protocol Buffers | Contrato tipado via `.proto`, serialização binária eficiente e suporte a server streaming para notificações |
 | Concorrência | `threading` + `Lock` | Integrado ao `ThreadPoolExecutor` do gRPC; permite demonstrar exclusão mútua explícita na seção crítica |
-| Dados em memória | Lista ordenada + timestamps (ms) | Fila de lances ordenada por menor valor, com desempate por ordem de chegada |
+| Persistência | PostgreSQL + SQLAlchemy | Persistência dos leilões e lances entre reinicializações do servidor |
+| Gateway | Flask + Flask-SocketIO | BFF (Backend for Frontend) que traduz WebSocket/polling ↔ gRPC |
+| Frontend | React + TypeScript + Vite + Tailwind CSS | Interface responsiva e em tempo real para transportadoras e administradores |
+| Infraestrutura | Docker Compose | Orquestração dos serviços: banco, servidor gRPC e gateway |
 
 ### Por que essas escolhas?
 
 - **Python vs Java/Go/Node.js:** Java traz boilerplate excessivo para o escopo. Go exigiria aprender uma linguagem nova em paralelo. Node.js (single-threaded) esconderia os problemas de sincronização que o projeto exige demonstrar.
 - **gRPC vs REST vs Socket puro:** O enunciado exige framework (não socket puro). REST não suporta push nativo do servidor — exigiria polling. gRPC com server streaming resolve notificações de forma nativa.
 - **threading vs asyncio:** `asyncio` elimina race conditions por design, removendo a oportunidade de demonstrar sincronização explícita com `Lock`. A API `grpc.aio` também possui inconsistências entre versões.
+- **Flask-SocketIO como gateway:** O React não fala gRPC diretamente — o gateway traduz eventos de polling/WebSocket em chamadas gRPC, isolando o frontend da camada de transporte.
 
 ## Estrutura do Projeto
 
@@ -26,80 +30,97 @@ freight-auction/
 ├── protos/
 │   └── freight.proto              # Definições Protocol Buffers
 ├── server/
-│   ├── __init__.py
 │   ├── auction.py                 # Estado central em memória com Lock
+│   ├── database.py                # Modelos SQLAlchemy e CRUD (PostgreSQL)
 │   └── server.py                  # Servidor gRPC multicliente (porta 50051)
-├── client/
-│   ├── __init__.py
-│   └── client.py                  # Cliente console (BID, STATUS, SAIR)
-├── generated/
-│   ├── __init__.py
-│   ├── freight_pb2.py             # Stubs gerados — mensagens
-│   └── freight_pb2_grpc.py        # Stubs gerados — serviço
-├── docs/
-│   └── protocolo.md               # Documentação detalhada do protocolo
+├── gateway/
+│   └── gateway.py                 # WebSocket/polling gateway (Flask-SocketIO)
+├── frontend/
+│   └── src/
+│       ├── hooks/useSocket.ts     # Hook central de comunicação com o gateway
+│       ├── pages/
+│       │   ├── LoginPage.tsx      # Login unificado (admin/transportadora)
+│       │   ├── AdminDashboard.tsx # Painel admin: criar leilões, gerenciar contas
+│       │   ├── AdminPage.tsx      # Gerenciamento de leilão específico
+│       │   ├── TransportadoraDashboard.tsx # Lista de leilões ativos
+│       │   └── AuctionPage.tsx    # Sala do leilão em tempo real
+│       └── components/            # StatusPanel, BidHistory, modais, etc.
+├── generated/                     # Stubs gerados pelo protoc (não editar)
+├── docker-compose.yml
+├── Dockerfile
 ├── requirements.txt
 └── README.md
 ```
 
 ## Arquivo .proto
 
-O contrato do serviço está definido em `protos/freight.proto` usando proto3. Ele declara um serviço `FreightAuction` com três RPCs:
+O contrato do serviço está definido em `protos/freight.proto` usando proto3. Ele declara um serviço `FreightAuction` com os seguintes RPCs:
 
 | RPC | Tipo | Descrição |
 |---|---|---|
-| `PlaceBid` | Unário | Cliente envia `BidRequest` com valor e ID. Servidor valida e responde com `BidResponse` |
-| `GetStatus` | Unário | Cliente solicita estado atual. Servidor responde com `StatusResponse` |
-| `SubscribeUpdates` | Server streaming | Cliente se inscreve e recebe `AuctionUpdate` a cada novo menor lance |
+| `Login` | Unário | Autentica admin (credenciais) ou transportadora cadastrada |
+| `CreateAuction` | Unário | Admin cria novo leilão com imagens, especificações e timer opcional |
+| `CreateCarrier` | Unário | Admin cadastra conta de transportadora com usuário e senha |
+| `ListAuctions` | Unário | Lista leilões ativos ou histórico completo |
+| `GetAuctionDetail` | Unário | Detalhe de um leilão específico com histórico de lances |
+| `GetCarrierHistory` | Unário | Leilões em que determinada transportadora participou |
+| `ResolveJoinCode` | Unário | Resolve código de 6 caracteres para ID do leilão |
+| `PlaceBid` | Unário | Transportadora envia lance; servidor valida e responde com resultado |
+| `GetStatus` | Unário | Estado atual de um leilão (menor lance, líder, timer, etc.) |
+| `GetHistory` | Unário | Histórico completo de lances de um leilão |
+| `CloseAuction` | Unário | Admin encerra o leilão manualmente |
+| `SubscribeUpdates` | Server streaming | Transportadora se inscreve e recebe `AuctionUpdate` a cada novo lance |
 
-As mensagens definidas no `.proto` são:
-
-```
-BidRequest          { valor: float, transportadora_id: string }
-BidResponse         { aceito: bool, menor_lance_atual: float, mensagem: string }
-StatusRequest       { }
-StatusResponse      { menor_lance: float, transportadora_lider: string, timestamp: int64, total_lances: int32 }
-SubscriptionRequest { transportadora_id: string }
-AuctionUpdate       { menor_lance: float, transportadora_lider: string, timestamp: int64 }
-```
-
-Os stubs Python são gerados com o comando:
+Os stubs Python são gerados com:
 
 ```bash
 python -m grpc_tools.protoc -I protos/ --python_out=generated/ --grpc_python_out=generated/ protos/freight.proto
 ```
 
-## Fila Ordenada em Memória
+## Interface Gráfica
 
-O servidor mantém uma lista ordenada de lances válidos no `AuctionState` (arquivo `server/auction.py`). Cada entrada na fila é um dataclass `Lance` com três campos:
+A interface React oferece painéis distintos para cada papel:
 
-| Campo | Tipo | Descrição |
-|---|---|---|
-| `valor` | `float` | Valor do lance |
-| `transportadora_id` | `str` | ID de quem fez o lance |
-| `timestamp_ms` | `int` | Momento do registro em milissegundos desde epoch |
+### Painel da Transportadora (`AuctionPage`)
 
-O estado central é protegido por `threading.Lock()` e contém:
+Exibe em tempo real:
+- **Dados da carga anunciada** — título, descrição, especificações e imagens em carrossel
+- **Valor atual do menor lance** — atualizado automaticamente a cada novo lance recebido
+- **Timer de encerramento** — contagem regressiva local sincronizada com o servidor
+- **Histórico de lances** — tabela com Nº, valor, data/hora e arrematante (lances próprios destacados)
+- **Formulário de lance** — botões de valores pré-calculados + campo livre, com etapa de confirmação antes do envio para evitar cliques acidentais
+- **Alerta visual de perda de liderança** — ao receber um `auction_update` com novo líder diferente do usuário, o banner de vencedor atualiza imediatamente indicando quem assumiu a liderança
 
-- **`carga`** — dados da carga anunciada (descrição + valor inicial), imutável após criação
-- **`menor_lance`** — referência ao lance vencedor atual (ou `None` se nenhum lance)
-- **`historico_lances`** — lista com todos os lances válidos aceitos, em ordem de registro
-- **`participantes`** — set de IDs das transportadoras conectadas (para notificações via stream)
+### Painel do Administrador (`AdminDashboard` + `AdminPage`)
 
-## Lógica de Desempate
+- **Dashboard** com cards dos leilões ativos (thumbnail, data/hora, código de acesso)
+- **Criar leilão** — modal com: título, descrição, especificações, lance inicial, timer opcional e upload de imagens (comprimidas automaticamente no browser)
+- **Criar conta de transportadora** — modal com usuário e senha
+- **Histórico de leilões** — modal com lista completa; ao selecionar, exibe dados do leilão e do vencedor
+- **Gerenciar leilão ativo** — acesso direto à sala para monitorar lances e encerrar com countdown "Dou-lhe uma, duas, três"
 
-O critério de ordenação é: **menor valor vence**. Em caso de dois lances com o mesmo valor, a **ordem de chegada (timestamp em milissegundos) é o critério absoluto**.
+## Broadcast Automático de Lances
 
-Na prática, empates não ocorrem por causa do `threading.Lock()`. O fluxo de dois lances simultâneos é:
+O gateway mantém **uma thread gRPC por leilão ativo**. Quando um lance é aceito:
+
+1. O servidor gRPC notifica todos os subscribers via `SubscribeUpdates` (server streaming)
+2. A thread do gateway recebe o `AuctionUpdate` e chama `socketio.emit("auction_update", data, to=room)`
+3. Todos os clientes na room do leilão recebem a atualização **sem polling manual**
+4. O frontend atualiza o painel de status, o histórico de lances e dispara a animação de novo lance
+
+O canal de broadcast é implementado no gateway com rooms isoladas por leilão (`leilao_{id}`), garantindo que transportadoras de leilões diferentes não recebam mensagens cruzadas.
+
+## Sincronização Atômica de Lances
+
+O estado central é protegido por `threading.Lock()` no `AuctionState` (`server/auction.py`). O fluxo de dois lances simultâneos com o mesmo valor é:
 
 1. Transportadora A e Transportadora B enviam `BID 500` ao mesmo tempo
 2. Ambas as chamadas chegam em threads separadas do `ThreadPoolExecutor`
 3. A primeira thread a adquirir o `Lock` entra na seção crítica
-4. Dentro do lock, ela captura o timestamp, valida que `500 < teto_atual`, registra o lance e atualiza o `menor_lance`
+4. Dentro do lock, ela captura o timestamp, valida que `500 < teto_atual`, registra o lance e atualiza `menor_lance`
 5. O lock é liberado
-6. A segunda thread adquire o lock, captura seu timestamp, mas agora o teto é `500`
-7. Como `500` não é estritamente menor que `500`, o lance é **rejeitado**
-8. Resultado: o primeiro a adquirir o lock venceu — a serialização é determinística
+6. A segunda thread adquire o lock, mas agora o teto é `500` — como `500` não é estritamente menor, o lance é **rejeitado**
+7. Resultado: o primeiro a adquirir o lock venceu — a serialização é determinística e não existe empate
 
 O timestamp é capturado **dentro** do lock (não antes), garantindo que ele reflete exatamente a ordem real de processamento.
 
@@ -107,107 +128,109 @@ O timestamp é capturado **dentro** do lock (não antes), garantindo que ele ref
 
 ### Pré-requisitos
 
-- Python 3.10 ou superior
-- pip
+- Docker e Docker Compose
+- Node.js 18+ (apenas para o frontend)
 
-### Instalação
-
-```bash
-git clone https://github.com/SEU_USUARIO/freight-auction.git
-cd freight-auction
-pip install -r requirements.txt
-```
-
-### Executar o servidor
+### Backend (Docker)
 
 ```bash
-python -m server.server
+docker-compose up --build
 ```
 
-O servidor inicia na porta `50051` e exibe logs de todas as operações no console.
+Sobe automaticamente:
+- **PostgreSQL** na porta `5432`
+- **Servidor gRPC** na porta `50051`
+- **Gateway Flask-SocketIO** na porta `5000`
 
-### Executar o cliente
-
-Em outro terminal:
+### Frontend
 
 ```bash
-python -m client.client
+cd frontend
+npm install
+npm run dev
 ```
 
-O cliente pedirá o ID da transportadora e aceitará os seguintes comandos:
+Acesse em `http://localhost:5173`.
 
-```
-BID <valor>    — Enviar um lance (ex: BID 5000)
-STATUS         — Consultar estado atual do leilão
-SAIR           — Desconectar do servidor
-```
+### Credenciais padrão
 
-### Simulando lances concorrentes de múltiplas transportadoras
+| Papel | Usuário | Senha |
+|---|---|---|
+| Administrador | `admin` | `admin123` |
+| Transportadora | cadastrado pelo admin | definido pelo admin |
 
-Para testar concorrência, abra 3 terminais:
+## Simulando Disputa Agressiva de Lances Simultâneos
 
-**Terminal 1 — Servidor:**
+Para simular múltiplas transportadoras competindo em tempo real:
+
+### 1. Suba o backend
+
 ```bash
-python -m server.server
+docker-compose up --build
 ```
 
-**Terminal 2 — Transportadora A:**
-```bash
-python -m client.client
-# ID: TranspA
-# >>> BID 8000
-# >>> STATUS
+### 2. Abra múltiplos painéis de transportadora
+
+Abra **abas separadas** no browser em `http://localhost:5173`. Cada aba tem sua própria sessão independente (`sessionStorage`), permitindo logar com usuários diferentes simultaneamente:
+
+| Aba | Usuário | Papel |
+|---|---|---|
+| Aba 1 | `translog_sp` | Transportadora |
+| Aba 2 | `translog_rj` | Transportadora |
+| Aba 3 | `translog_mg` | Transportadora |
+| Aba 4 | `admin` | Administrador |
+
+### 3. Crie um leilão com timer curto
+
+Na aba do admin:
+1. Clique em **Criar Leilão**
+2. Preencha título, especificações e lance inicial (ex: R$ 10.000)
+3. Defina tempo curto (ex: 300 segundos = 5 minutos) para pressionar as transportadoras
+4. Adicione uma foto de capa
+5. Copie o **código de acesso** gerado e compartilhe com as transportadoras
+
+### 4. Transportadoras entram no leilão
+
+Cada aba de transportadora:
+1. Insere o código ou clica no card do leilão na lista de ativos
+2. Entra na sala do leilão
+
+### 5. Disparando lances concorrentes
+
+Para simular disputa agressiva, clique em botões de lance em abas diferentes **quase simultaneamente**. O servidor serializa os lances via `threading.Lock()`:
+
+- O primeiro lance a adquirir o lock é aceito
+- Lances de valor igual ou maior são rejeitados imediatamente
+- Todas as abas recebem o `auction_update` automaticamente, sem refresh
+
+**Comportamento esperado:**
+
+```
+Aba 1 (translog_sp): clica em "R$ 9.500" → ✓ Lance aceito
+Aba 2 (translog_rj): clica em "R$ 9.500" ao mesmo tempo → ✗ Lance deve ser menor que 9500
+Aba 3 (translog_mg): clica em "R$ 9.000" → ✓ Lance aceito — assume liderança
+Abas 1 e 2: recebem notificação automática com novo menor lance de translog_mg
 ```
 
-**Terminal 3 — Transportadora B:**
-```bash
-python -m client.client
-# ID: TranspB
-# >>> BID 5000     (aceito — menor que 8000)
-# >>> BID 9000     (rejeitado — maior que 5000)
-# >>> STATUS       (mostra TranspB como líder)
-```
+### 6. Encerramento com countdown
 
-Ao executar `BID 5000` no Terminal 3, o Terminal 2 (TranspA) recebe automaticamente a notificação:
-
-```
-[NOTIFICAÇÃO] Novo menor lance: R$ 5000.00 por 'TranspB' (timestamp: )
-```
-
-### Verificando ordenação por ordem de chegada (desempate)
-
-Para testar o cenário de empate, ambas as transportadoras tentam dar o mesmo lance:
-
-**Terminal 2 — TranspA:**
-```
->>> BID 3000
-  ✓ Lance registrado com sucesso! | Menor lance: R$ 3000.00
-```
-
-**Terminal 3 — TranspB (imediatamente depois):**
-```
->>> BID 3000
-  ✗ Lance deve ser menor que 3000.0. | Menor lance: R$ 3000.00
-```
-
-O lance de TranspB é rejeitado porque TranspA adquiriu o lock primeiro. O servidor garante que **não existe empate** — o lock serializa os acessos e o primeiro a entrar na seção crítica vence.
+Na aba do admin, dentro do leilão:
+1. Clique em **Encerrar Leilão**
+2. O sistema exibe o countdown "Dou-lhe uma! → Dou-lhe duas! → Dou-lhe três!"
+3. Ao zerar, todas as transportadoras recebem o banner de encerramento com o vencedor
 
 ### Logs do servidor
 
-O servidor exibe logs estruturados para todas as operações:
-
 ```
-[2025-06-19 01:29:17] INFO - Leilão iniciado: 'Carga de exemplo — 20 toneladas, São Paulo → Recife' | Valor inicial: R$ 10000.00
-[2025-06-19 01:29:17] INFO - Servidor rodando na porta 50051. Ctrl+C para parar.
-[2025-06-19 01:29:19] INFO - Lance recebido: R$ 8000.00 da transportadora 'TranspA'
-[2025-06-19 01:29:19] INFO - Lance aceito! Novo menor lance: R$ 8000.00
-[2025-06-19 01:29:19] INFO - Notificação enviada para 1 participante(s).
-[2025-06-19 01:29:19] INFO - Status solicitado. Menor lance: R$ 8000.00
-[2025-06-19 01:29:22] INFO - Lance recebido: R$ 5000.00 da transportadora 'TranspB'
-[2025-06-19 01:29:22] INFO - Lance aceito! Novo menor lance: R$ 5000.00
-[2025-06-19 01:29:22] INFO - Notificação enviada para 2 participante(s).
-[2025-06-19 01:29:25] INFO - Lance recebido: R$ 7000.00 da transportadora 'TranspC'
-[2025-06-19 01:29:25] INFO - Lance rejeitado: Lance deve ser menor que 5000.0.
+[2026-06-27 10:00:00] INFO - Leilão 1 'RECIFE → SP, TRANSPORTE DE BANANAS' criado (código F3T8KZ).
+[2026-06-27 10:00:05] INFO - Lance recebido: R$ 9500.00 da transportadora 'translog_sp'
+[2026-06-27 10:00:05] INFO - Lance aceito! Novo menor lance: R$ 9500.00
+[2026-06-27 10:00:05] INFO - Notificados 3 subscriber(s) do leilão 1.
+[2026-06-27 10:00:06] INFO - Lance recebido: R$ 9500.00 da transportadora 'translog_rj'
+[2026-06-27 10:00:06] INFO - Lance rejeitado: Lance deve ser menor que 9500.00.
+[2026-06-27 10:00:08] INFO - Lance recebido: R$ 9000.00 da transportadora 'translog_mg'
+[2026-06-27 10:00:08] INFO - Lance aceito! Novo menor lance: R$ 9000.00
+[2026-06-27 10:00:08] INFO - Notificados 3 subscriber(s) do leilão 1.
 ```
 
 ## Equipe
