@@ -38,7 +38,7 @@ export default function CreateAuctionModal({ onClose, onCreate, result, onClearR
   const [descricao, setDescricao]           = useState('')
   const [especificacoes, setEspecificacoes] = useState('')
   const [valorInicial, setValorInicial]     = useState('')
-  const [tempoSegundos, setTempoSegundos]   = useState('')
+  const [tempoMinutos, setTempoMinutos]     = useState('')
   const [imagens, setImagens]               = useState<string[]>([])
   const [loadingImg, setLoadingImg]         = useState(false)
   const [loading, setLoading]               = useState(false)
@@ -71,7 +71,7 @@ export default function CreateAuctionModal({ onClose, onCreate, result, onClearR
       titulo: titulo.trim(), descricao: descricao.trim(),
       especificacoes: especificacoes.trim(),
       valor_inicial: valor,
-      tempo_segundos: parseInt(tempoSegundos) || 0,
+      tempo_segundos: (parseInt(tempoMinutos) || 0) * 60,
       imagens,
     })
   }
@@ -144,10 +144,10 @@ export default function CreateAuctionModal({ onClose, onCreate, result, onClearR
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tempo (seg) <span className="text-gray-400 font-normal">opcional</span>
+                  Tempo (min) <span className="text-gray-400 font-normal">opcional</span>
                 </label>
-                <input type="number" value={tempoSegundos} onChange={e => setTempoSegundos(e.target.value)}
-                  placeholder="0 = sem timer" min="0"
+                <input type="number" value={tempoMinutos} onChange={e => setTempoMinutos(e.target.value)}
+                  placeholder="ex: 30 (= 30 min)" min="0"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
               </div>
             </div>

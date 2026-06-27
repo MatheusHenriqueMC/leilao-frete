@@ -2,8 +2,10 @@ import { useEffect, useState, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useSocket } from '../hooks/useSocket'
 // BidHistory removido — substituído pelo painel unificado abaixo
-import AlertBanner  from '../components/AlertBanner'
-import Logo         from '../components/Logo'
+import AlertBanner    from '../components/AlertBanner'
+import Logo           from '../components/Logo'
+import ToastContainer from '../components/ToastContainer'
+import { useLeadershipNotifications } from '../hooks/useLeadershipNotifications'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -103,6 +105,8 @@ export default function AuctionPage() {
     return () => clearTimeout(t)
   }, [lastBidResponse, leilaoId])
 
+  const { toasts, dismissToast } = useLeadershipNotifications(userId, lastUpdate, status, undefined)
+
   if (!userId) return null
 
   // ── Estado derivado ───────────────────────────────────────────────────────
@@ -156,6 +160,7 @@ export default function AuctionPage() {
 
   return (
     <div className="min-h-screen bg-gray-100">
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
       {/* Header — logo centralizada */}
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-6xl mx-auto px-4 py-3 grid grid-cols-3 items-center">
@@ -233,32 +238,21 @@ export default function AuctionPage() {
           <div className="lg:flex-1">
             <div className="flex flex-col h-full bg-white border border-gray-200 rounded-lg overflow-hidden">
 
-              {/* Badge de status */}
-              <div className={`px-4 py-2.5 text-center font-semibold text-sm shrink-0 ${badge.cls}`}>
-                {badge.label}
+              {/* Badge de status / Timer — ocupa o mesmo espaço */}
+              <div className={`px-4 py-2.5 text-center font-semibold shrink-0 ${badge.cls}`}>
+                {isAuctionClosed ? (
+                  <span className="text-sm">Encerrado</span>
+                ) : status?.tempo_total_s && status.tempo_total_s > 0 ? (
+                  // Quando há timer ativo, exibe a contagem no lugar do label
+                  <span className={`font-mono text-base tracking-wide ${
+                    tempoRestante < 30 ? 'animate-pulse' : ''
+                  }`}>
+                    {formatCountdown(tempoRestante)}
+                  </span>
+                ) : (
+                  <span className="text-sm">{badge.label}</span>
+                )}
               </div>
-
-              {/* Timer — sempre visível */}
-              {status && (
-                <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 shrink-0">
-                  {status.tempo_total_s > 0 ? (
-                    <p className="text-sm text-gray-700">
-                      <span className="font-medium">Restando: </span>
-                      <span className={`font-mono font-bold ${
-                        isAuctionClosed
-                          ? 'text-gray-500'
-                          : tempoRestante < 30 ? 'text-red-600' : 'text-gray-900'
-                      }`}>
-                        {isAuctionClosed ? 'Encerrado' : formatCountdown(tempoRestante)}
-                      </span>
-                    </p>
-                  ) : (
-                    <p className="text-xs text-gray-400 uppercase tracking-wide">
-                      Sem tempo definido de finalização
-                    </p>
-                  )}
-                </div>
-              )}
 
               {/* Grid de valores */}
               <div className="grid grid-cols-2 divide-x divide-y divide-gray-100 border-b border-gray-200 shrink-0">

@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { useSocket } from '../hooks/useSocket'
 import AuctionHistoryModal  from '../components/AuctionHistoryModal'
 import AuctionPreviewModal  from '../components/AuctionPreviewModal'
-import Logo from '../components/Logo'
+import Logo           from '../components/Logo'
+import ToastContainer from '../components/ToastContainer'
+import { useLeadershipNotifications } from '../hooks/useLeadershipNotifications'
 import type { AuctionSummary } from '../types'
 
 function brl(v: number) {
@@ -43,9 +45,17 @@ export default function TransportadoraDashboard() {
 
   const {
     connected, auctionsList, carrierHistory, auctionDetail,
-    resolveCodeResult, listAuctions, fetchCarrierHistory,
-    fetchAuctionDetail, resolveCode,
+    resolveCodeResult, lastUpdate, listAuctions, fetchCarrierHistory,
+    fetchAuctionDetail, resolveCode, joinAuction,
   } = useSocket()
+
+  // Usa auctionsList (do socket) como seed — disponível antes do estado local
+  const { toasts, dismissToast } = useLeadershipNotifications(
+    userId,
+    lastUpdate,
+    undefined,
+    auctionsList.map(l => ({ id: l.id, transportadora_lider: l.transportadora_lider, titulo: l.titulo })),
+  )
 
   const [ativos, setAtivos]       = useState<AuctionSummary[]>([])
   const [showHistory, setShowHistory] = useState(false)
@@ -68,6 +78,14 @@ export default function TransportadoraDashboard() {
   useEffect(() => {
     setAtivos(auctionsList)
   }, [auctionsList])
+
+  // Entra nas rooms dos leilões onde o usuário está liderando para receber notificações no dashboard
+  useEffect(() => {
+    if (!connected || !userId) return
+    auctionsList
+      .filter(l => !l.encerrado && l.transportadora_lider === userId)
+      .forEach(l => joinAuction(l.id, userId))
+  }, [auctionsList, connected, userId, joinAuction])
 
   // auto-refresh
   useEffect(() => {
@@ -99,6 +117,7 @@ export default function TransportadoraDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
       {/* Header */}
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-screen-xl mx-auto px-6 py-3 flex items-center justify-between">
