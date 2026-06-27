@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Box, Alert, AlertTitle, Slide, Typography } from '@mui/material'
 
 export interface ToastItem {
   id: number
@@ -13,54 +14,52 @@ interface Props {
 }
 
 function Toast({ item, onDismiss }: { item: ToastItem; onDismiss: (id: number) => void }) {
-  const [leaving, setLeaving] = useState(false)
+  const [open, setOpen] = useState(true)
 
   function dismiss() {
-    setLeaving(true)
-    setTimeout(() => onDismiss(item.id), 280)
+    setOpen(false)
+    setTimeout(() => onDismiss(item.id), 250)
   }
 
   useEffect(() => {
     const t = setTimeout(dismiss, 7000)
     return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const colors: Record<ToastItem['type'], string> = {
-    warning: 'bg-orange-500 border-orange-600',
-    info:    'bg-blue-600  border-blue-700',
-    success: 'bg-green-600 border-green-700',
-  }
-  const icons: Record<ToastItem['type'], string> = {
-    warning: '⚠️',
-    info:    'ℹ️',
-    success: '✅',
-  }
-
   return (
-    <div className={`pointer-events-auto flex items-start gap-3 px-4 py-3 rounded-xl shadow-xl border
-                     text-white ${colors[item.type]} ${leaving ? 'toast-leave' : 'toast-enter'}`}>
-      <span className="text-xl shrink-0 mt-0.5">{icons[item.type]}</span>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-bold leading-snug">{item.title}</p>
+    <Slide direction="left" in={open} mountOnEnter unmountOnExit>
+      <Alert
+        severity={item.type}
+        variant="filled"
+        onClose={dismiss}
+        sx={{ width: 320, boxShadow: 6 }}
+      >
+        <AlertTitle sx={{ fontWeight: 700, mb: item.lines?.length ? 0.5 : 0 }}>
+          {item.title}
+        </AlertTitle>
         {item.lines?.map((line, i) => (
-          <p key={i} className="text-xs text-white/85 mt-0.5 leading-snug">{line}</p>
+          <Typography key={i} variant="caption" sx={{ display: 'block', lineHeight: 1.4 }}>
+            {line}
+          </Typography>
         ))}
-      </div>
-      <button onClick={dismiss}
-        className="text-white/70 hover:text-white text-xl leading-none shrink-0 ml-1">
-        ×
-      </button>
-    </div>
+      </Alert>
+    </Slide>
   )
 }
 
 export default function ToastContainer({ toasts, onDismiss }: Props) {
   if (toasts.length === 0) return null
   return (
-    <div className="fixed top-4 right-4 z-[300] flex flex-col gap-2 w-80 pointer-events-none">
+    <Box
+      sx={{
+        position: 'fixed', top: 16, right: 16, zIndex: 1400,
+        display: 'flex', flexDirection: 'column', gap: 1,
+      }}
+    >
       {toasts.map(t => (
         <Toast key={t.id} item={t} onDismiss={onDismiss} />
       ))}
-    </div>
+    </Box>
   )
 }

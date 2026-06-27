@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Box, Paper, TextField, Button, Stack, Alert } from '@mui/material'
 import { useSocket } from '../hooks/useSocket'
 import Logo from '../components/Logo'
 
@@ -29,51 +30,38 @@ export default function LoginPage() {
   }, [loginResponse, navigate])
 
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-lg w-full max-w-sm p-8">
-        {/* Logo */}
-        <div className="flex justify-center mb-8">
-          <Logo height={200} />
-        </div>
+    <Box sx={{
+      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      bgcolor: 'background.default', p: 2,
+    }}>
+      <Paper variant="outlined" sx={{ width: '100%', maxWidth: 400, p: 4 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'center', mb: 4 }}>
+          <Logo height={160} />
+        </Box>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Nome / Usuário
-            </label>
-            <input
-              type="text" value={username} onChange={e => setUsername(e.target.value)}
-              placeholder="ex: TransLog SP  ou  admin"
-              autoFocus autoComplete="off"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 text-gray-900"
+        <form onSubmit={handleSubmit}>
+          <Stack spacing={2.5}>
+            <TextField
+              label="Nome / Usuário" value={username} onChange={e => setUsername(e.target.value)}
+              placeholder="ex: TransLog SP ou admin" autoComplete="off" autoFocus fullWidth
             />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Senha <span className="text-gray-400 font-normal">(apenas para admin e transportadoras cadastradas)</span>
-            </label>
-            <input
-              type="password" value={password} onChange={e => setPassword(e.target.value)}
-              placeholder="Sua senha"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400 text-gray-900"
+            <TextField
+              label="Senha" type="password" value={password} onChange={e => setPassword(e.target.value)}
+              placeholder="Sua senha" fullWidth
+              helperText="Apenas para admin e transportadoras cadastradas"
             />
-          </div>
 
-          {erro && (
-            <p className="text-sm text-red-600 bg-red-50 border border-red-100 px-3 py-2 rounded-lg">
-              {erro}
-            </p>
-          )}
+            {erro && <Alert severity="error">{erro}</Alert>}
 
-          <button
-            type="submit" disabled={loading || !connected}
-            className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg transition-colors"
-          >
-            {loading ? 'Entrando…' : !connected ? 'Conectando…' : 'Entrar'}
-          </button>
+            <Button
+              type="submit" variant="contained" size="large" fullWidth
+              disabled={loading || !connected}
+            >
+              {loading ? 'Entrando...' : !connected ? 'Conectando...' : 'Entrar'}
+            </Button>
+          </Stack>
         </form>
-      </div>
-    </div>
+      </Paper>
+    </Box>
   )
 }
