@@ -2,23 +2,159 @@ syntax = "proto3";
 
 package freight;
 
-// Serviço principal do leilão reverso de fretes
 service FreightAuction {
-  // Envia um lance (BID <valor>)
+  // Autenticação
+  rpc Login (LoginRequest) returns (LoginResponse);
+  rpc CreateCarrier (CreateCarrierRequest) returns (CreateCarrierResponse);
+
+  // Gestão de leilões (admin)
+  rpc CreateAuction (CreateAuctionRequest) returns (CreateAuctionResponse);
+  rpc CloseAuction (CloseRequest) returns (CloseResponse);
+
+  // Consultas
+  rpc ListAuctions (ListAuctionsRequest) returns (ListAuctionsResponse);
+  rpc GetAuctionDetail (AuctionDetailRequest) returns (AuctionDetailResponse);
+  rpc GetCarrierHistory (CarrierHistoryRequest) returns (CarrierHistoryResponse);
+  rpc ResolveJoinCode (ResolveJoinCodeRequest) returns (ResolveJoinCodeResponse);
+
+  // Operações de leilão
   rpc PlaceBid (BidRequest) returns (BidResponse);
-
-  // Consulta estado atual (STATUS)
   rpc GetStatus (StatusRequest) returns (StatusResponse);
+  rpc GetHistory (HistoryRequest) returns (HistoryResponse);
 
-  // Inscreve-se para receber notificações de novos lances e encerramento
+  // Stream de notificações em tempo real
   rpc SubscribeUpdates (SubscriptionRequest) returns (stream AuctionUpdate);
 }
 
-// --- Mensagens ---
+// ── Autenticação ─────────────────────────────────────────────────────────────
+
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  bool sucesso = 1;
+  string role = 2;      // "admin" | "transportadora"
+  string mensagem = 3;
+}
+
+// ── Criação de Leilão ─────────────────────────────────────────────────────────
+
+message CreateAuctionRequest {
+  string titulo = 1;
+  string descricao = 2;
+  string especificacoes = 3;
+  float valor_inicial = 4;
+  int32 tempo_segundos = 5;
+  repeated string imagens = 6;  // base64 data URLs (comprimidas no frontend)
+}
+
+message CreateAuctionResponse {
+  bool sucesso = 1;
+  int32 leilao_id = 2;
+  string join_code = 3;
+  string mensagem = 4;
+}
+
+// ── Encerramento ──────────────────────────────────────────────────────────────
+
+message CloseRequest {
+  string admin_id = 1;
+  int32 leilao_id = 2;
+}
+
+message CloseResponse {
+  bool sucesso = 1;
+  string mensagem = 2;
+  string vencedor_id = 3;
+  float valor_final = 4;
+  int32 total_lances = 5;
+}
+
+// ── Listagem de Leilões ───────────────────────────────────────────────────────
+
+message ListAuctionsRequest {
+  bool apenas_ativos = 1;
+}
+
+message AuctionSummary {
+  int32 id = 1;
+  string titulo = 2;
+  string descricao = 3;
+  string especificacoes = 4;
+  string join_code = 5;
+  float valor_inicial = 6;
+  float menor_lance = 7;
+  string transportadora_lider = 8;
+  bool encerrado = 9;
+  int32 total_lances = 10;
+  int32 tempo_restante_s = 11;
+  int32 tempo_total_s = 12;
+  string created_at = 13;
+  string ended_at = 14;
+  string vencedor_id = 15;
+  float valor_final = 16;
+  string thumbnail = 17;  // primeira imagem (base64) para exibição no card
+}
+
+message ListAuctionsResponse {
+  repeated AuctionSummary leiloes = 1;
+}
+
+// ── Detalhe de Leilão ─────────────────────────────────────────────────────────
+
+message AuctionDetailRequest {
+  int32 leilao_id = 1;
+}
+
+message AuctionDetailResponse {
+  AuctionSummary leilao = 1;
+  repeated LanceInfo lances = 2;
+  repeated string imagens = 3;  // base64 data URLs
+}
+
+// ── Transportadoras ────────────────────────────────────────────────────────────
+
+message CreateCarrierRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message CreateCarrierResponse {
+  bool sucesso = 1;
+  string mensagem = 2;
+}
+
+// ── Histórico da Transportadora ───────────────────────────────────────────────
+
+message CarrierHistoryRequest {
+  string transportadora_id = 1;
+}
+
+message CarrierHistoryResponse {
+  repeated AuctionSummary leiloes = 1;
+}
+
+// ── Resolver Join Code ────────────────────────────────────────────────────────
+
+message ResolveJoinCodeRequest {
+  string join_code = 1;
+}
+
+message ResolveJoinCodeResponse {
+  bool encontrado = 1;
+  int32 leilao_id = 2;
+  string titulo = 3;
+  string mensagem = 4;
+}
+
+// ── Lance ─────────────────────────────────────────────────────────────────────
 
 message BidRequest {
   float valor = 1;
   string transportadora_id = 2;
+  int32 leilao_id = 3;
 }
 
 message BidResponse {
@@ -27,18 +163,49 @@ message BidResponse {
   string mensagem = 3;
 }
 
-message StatusRequest {}
+// ── Status ────────────────────────────────────────────────────────────────────
+
+message StatusRequest {
+  int32 leilao_id = 1;
+}
 
 message StatusResponse {
-  float menor_lance = 1;
-  string transportadora_lider = 2;
-  int64 timestamp = 3;
-  int32 total_lances = 4;
-  bool encerrado = 5;
+  int32 leilao_id = 1;
+  string titulo = 2;
+  string descricao_carga = 3;
+  string especificacoes = 4;
+  float valor_inicial = 5;
+  float menor_lance = 6;
+  string transportadora_lider = 7;
+  int64 timestamp = 8;
+  int32 total_lances = 9;
+  bool encerrado = 10;
+  int32 tempo_restante_s = 11;
+  int32 tempo_total_s = 12;
+  string join_code = 13;
 }
+
+// ── Histórico de Lances ───────────────────────────────────────────────────────
+
+message HistoryRequest {
+  int32 leilao_id = 1;
+}
+
+message HistoryResponse {
+  repeated LanceInfo lances = 1;
+}
+
+message LanceInfo {
+  float valor = 1;
+  string transportadora_id = 2;
+  int64 timestamp = 3;
+}
+
+// ── Subscription / Stream ─────────────────────────────────────────────────────
 
 message SubscriptionRequest {
   string transportadora_id = 1;
+  int32 leilao_id = 2;
 }
 
 message AuctionUpdate {
@@ -47,4 +214,6 @@ message AuctionUpdate {
   int64 timestamp = 3;
   bool encerrado = 4;
   string mensagem = 5;
+  int32 leilao_id = 6;
+  int32 tempo_restante_s = 7;
 }

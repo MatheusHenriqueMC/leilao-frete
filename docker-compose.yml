@@ -1,0 +1,55 @@
+services:
+  # Banco de dados PostgreSQL
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: freight_auction
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Servidor gRPC
+  grpc-server:
+    build: .
+    command: python -m server.server
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/freight_auction
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: admin123
+    ports:
+      - "50051:50051"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('localhost',50051)); s.close()\""]
+      interval: 5s
+      timeout: 4s
+      retries: 10
+      start_period: 10s
+
+  # WebSocket Gateway
+  gateway:
+    build: .
+    command: python -m gateway.gateway
+    environment:
+      GRPC_HOST: grpc-server
+      GRPC_PORT: "50051"
+      GATEWAY_PORT: "5000"
+      CORS_ORIGINS: "http://localhost:5173,http://localhost:3000"
+    ports:
+      - "5000:5000"
+    depends_on:
+      grpc-server:
+        condition: service_healthy
+
+volumes:
+  pgdata:

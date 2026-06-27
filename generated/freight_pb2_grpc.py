@@ -5,7 +5,7 @@ import warnings
 
 import freight_pb2 as freight__pb2
 
-GRPC_GENERATED_VERSION = '1.81.1'
+GRPC_GENERATED_VERSION = '1.72.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -18,16 +18,15 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + ' but the generated code in freight_pb2_grpc.py depends on'
+        + f' but the generated code in freight_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
     )
 
 
-class FreightAuctionStub:
-    """Serviço principal do leilão reverso de fretes
-    """
+class FreightAuctionStub(object):
+    """Missing associated documentation comment in .proto file."""
 
     def __init__(self, channel):
         """Constructor.
@@ -35,6 +34,46 @@ class FreightAuctionStub:
         Args:
             channel: A grpc.Channel.
         """
+        self.Login = channel.unary_unary(
+                '/freight.FreightAuction/Login',
+                request_serializer=freight__pb2.LoginRequest.SerializeToString,
+                response_deserializer=freight__pb2.LoginResponse.FromString,
+                _registered_method=True)
+        self.CreateCarrier = channel.unary_unary(
+                '/freight.FreightAuction/CreateCarrier',
+                request_serializer=freight__pb2.CreateCarrierRequest.SerializeToString,
+                response_deserializer=freight__pb2.CreateCarrierResponse.FromString,
+                _registered_method=True)
+        self.CreateAuction = channel.unary_unary(
+                '/freight.FreightAuction/CreateAuction',
+                request_serializer=freight__pb2.CreateAuctionRequest.SerializeToString,
+                response_deserializer=freight__pb2.CreateAuctionResponse.FromString,
+                _registered_method=True)
+        self.CloseAuction = channel.unary_unary(
+                '/freight.FreightAuction/CloseAuction',
+                request_serializer=freight__pb2.CloseRequest.SerializeToString,
+                response_deserializer=freight__pb2.CloseResponse.FromString,
+                _registered_method=True)
+        self.ListAuctions = channel.unary_unary(
+                '/freight.FreightAuction/ListAuctions',
+                request_serializer=freight__pb2.ListAuctionsRequest.SerializeToString,
+                response_deserializer=freight__pb2.ListAuctionsResponse.FromString,
+                _registered_method=True)
+        self.GetAuctionDetail = channel.unary_unary(
+                '/freight.FreightAuction/GetAuctionDetail',
+                request_serializer=freight__pb2.AuctionDetailRequest.SerializeToString,
+                response_deserializer=freight__pb2.AuctionDetailResponse.FromString,
+                _registered_method=True)
+        self.GetCarrierHistory = channel.unary_unary(
+                '/freight.FreightAuction/GetCarrierHistory',
+                request_serializer=freight__pb2.CarrierHistoryRequest.SerializeToString,
+                response_deserializer=freight__pb2.CarrierHistoryResponse.FromString,
+                _registered_method=True)
+        self.ResolveJoinCode = channel.unary_unary(
+                '/freight.FreightAuction/ResolveJoinCode',
+                request_serializer=freight__pb2.ResolveJoinCodeRequest.SerializeToString,
+                response_deserializer=freight__pb2.ResolveJoinCodeResponse.FromString,
+                _registered_method=True)
         self.PlaceBid = channel.unary_unary(
                 '/freight.FreightAuction/PlaceBid',
                 request_serializer=freight__pb2.BidRequest.SerializeToString,
@@ -45,6 +84,11 @@ class FreightAuctionStub:
                 request_serializer=freight__pb2.StatusRequest.SerializeToString,
                 response_deserializer=freight__pb2.StatusResponse.FromString,
                 _registered_method=True)
+        self.GetHistory = channel.unary_unary(
+                '/freight.FreightAuction/GetHistory',
+                request_serializer=freight__pb2.HistoryRequest.SerializeToString,
+                response_deserializer=freight__pb2.HistoryResponse.FromString,
+                _registered_method=True)
         self.SubscribeUpdates = channel.unary_stream(
                 '/freight.FreightAuction/SubscribeUpdates',
                 request_serializer=freight__pb2.SubscriptionRequest.SerializeToString,
@@ -52,26 +96,81 @@ class FreightAuctionStub:
                 _registered_method=True)
 
 
-class FreightAuctionServicer:
-    """Serviço principal do leilão reverso de fretes
-    """
+class FreightAuctionServicer(object):
+    """Missing associated documentation comment in .proto file."""
+
+    def Login(self, request, context):
+        """Autenticação
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CreateCarrier(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CreateAuction(self, request, context):
+        """Gestão de leilões (admin)
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CloseAuction(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListAuctions(self, request, context):
+        """Consultas
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetAuctionDetail(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetCarrierHistory(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ResolveJoinCode(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
     def PlaceBid(self, request, context):
-        """Envia um lance (BID <valor>)
+        """Operações de leilão
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def GetStatus(self, request, context):
-        """Consulta estado atual (STATUS)
-        """
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetHistory(self, request, context):
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def SubscribeUpdates(self, request, context):
-        """Inscreve-se para receber notificações de novos lances e encerramento
+        """Stream de notificações em tempo real
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -80,6 +179,46 @@ class FreightAuctionServicer:
 
 def add_FreightAuctionServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'Login': grpc.unary_unary_rpc_method_handler(
+                    servicer.Login,
+                    request_deserializer=freight__pb2.LoginRequest.FromString,
+                    response_serializer=freight__pb2.LoginResponse.SerializeToString,
+            ),
+            'CreateCarrier': grpc.unary_unary_rpc_method_handler(
+                    servicer.CreateCarrier,
+                    request_deserializer=freight__pb2.CreateCarrierRequest.FromString,
+                    response_serializer=freight__pb2.CreateCarrierResponse.SerializeToString,
+            ),
+            'CreateAuction': grpc.unary_unary_rpc_method_handler(
+                    servicer.CreateAuction,
+                    request_deserializer=freight__pb2.CreateAuctionRequest.FromString,
+                    response_serializer=freight__pb2.CreateAuctionResponse.SerializeToString,
+            ),
+            'CloseAuction': grpc.unary_unary_rpc_method_handler(
+                    servicer.CloseAuction,
+                    request_deserializer=freight__pb2.CloseRequest.FromString,
+                    response_serializer=freight__pb2.CloseResponse.SerializeToString,
+            ),
+            'ListAuctions': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListAuctions,
+                    request_deserializer=freight__pb2.ListAuctionsRequest.FromString,
+                    response_serializer=freight__pb2.ListAuctionsResponse.SerializeToString,
+            ),
+            'GetAuctionDetail': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetAuctionDetail,
+                    request_deserializer=freight__pb2.AuctionDetailRequest.FromString,
+                    response_serializer=freight__pb2.AuctionDetailResponse.SerializeToString,
+            ),
+            'GetCarrierHistory': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetCarrierHistory,
+                    request_deserializer=freight__pb2.CarrierHistoryRequest.FromString,
+                    response_serializer=freight__pb2.CarrierHistoryResponse.SerializeToString,
+            ),
+            'ResolveJoinCode': grpc.unary_unary_rpc_method_handler(
+                    servicer.ResolveJoinCode,
+                    request_deserializer=freight__pb2.ResolveJoinCodeRequest.FromString,
+                    response_serializer=freight__pb2.ResolveJoinCodeResponse.SerializeToString,
+            ),
             'PlaceBid': grpc.unary_unary_rpc_method_handler(
                     servicer.PlaceBid,
                     request_deserializer=freight__pb2.BidRequest.FromString,
@@ -89,6 +228,11 @@ def add_FreightAuctionServicer_to_server(servicer, server):
                     servicer.GetStatus,
                     request_deserializer=freight__pb2.StatusRequest.FromString,
                     response_serializer=freight__pb2.StatusResponse.SerializeToString,
+            ),
+            'GetHistory': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetHistory,
+                    request_deserializer=freight__pb2.HistoryRequest.FromString,
+                    response_serializer=freight__pb2.HistoryResponse.SerializeToString,
             ),
             'SubscribeUpdates': grpc.unary_stream_rpc_method_handler(
                     servicer.SubscribeUpdates,
@@ -103,9 +247,224 @@ def add_FreightAuctionServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class FreightAuction:
-    """Serviço principal do leilão reverso de fretes
-    """
+class FreightAuction(object):
+    """Missing associated documentation comment in .proto file."""
+
+    @staticmethod
+    def Login(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/freight.FreightAuction/Login',
+            freight__pb2.LoginRequest.SerializeToString,
+            freight__pb2.LoginResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CreateCarrier(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/freight.FreightAuction/CreateCarrier',
+            freight__pb2.CreateCarrierRequest.SerializeToString,
+            freight__pb2.CreateCarrierResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CreateAuction(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/freight.FreightAuction/CreateAuction',
+            freight__pb2.CreateAuctionRequest.SerializeToString,
+            freight__pb2.CreateAuctionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CloseAuction(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/freight.FreightAuction/CloseAuction',
+            freight__pb2.CloseRequest.SerializeToString,
+            freight__pb2.CloseResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListAuctions(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/freight.FreightAuction/ListAuctions',
+            freight__pb2.ListAuctionsRequest.SerializeToString,
+            freight__pb2.ListAuctionsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetAuctionDetail(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/freight.FreightAuction/GetAuctionDetail',
+            freight__pb2.AuctionDetailRequest.SerializeToString,
+            freight__pb2.AuctionDetailResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetCarrierHistory(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/freight.FreightAuction/GetCarrierHistory',
+            freight__pb2.CarrierHistoryRequest.SerializeToString,
+            freight__pb2.CarrierHistoryResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ResolveJoinCode(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/freight.FreightAuction/ResolveJoinCode',
+            freight__pb2.ResolveJoinCodeRequest.SerializeToString,
+            freight__pb2.ResolveJoinCodeResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def PlaceBid(request,
@@ -151,6 +510,33 @@ class FreightAuction:
             '/freight.FreightAuction/GetStatus',
             freight__pb2.StatusRequest.SerializeToString,
             freight__pb2.StatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetHistory(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/freight.FreightAuction/GetHistory',
+            freight__pb2.HistoryRequest.SerializeToString,
+            freight__pb2.HistoryResponse.FromString,
             options,
             channel_credentials,
             insecure,

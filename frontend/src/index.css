@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes bid-flash {
+  0%   { background-color: #bbf7d0; box-shadow: 0 0 0 2px #86efac; }
+  60%  { background-color: #dcfce7; box-shadow: none; }
+  100% { background-color: transparent; box-shadow: none; }
+}
+
+.bid-flash-new {
+  animation: bid-flash 1.4s ease-out;
+}
