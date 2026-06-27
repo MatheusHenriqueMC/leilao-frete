@@ -53,7 +53,7 @@ export default function AuctionPage() {
 
   const {
     connected, status, history, lastBidResponse, lastUpdate,
-    auctionDetail, error,
+    auctionDetail, countdownEvent, error,
     joinAuction, placeBid, requestStatus, requestHistory,
     fetchAuctionDetail, clearError,
   } = useSocket()
@@ -64,7 +64,9 @@ export default function AuctionPage() {
   const [valorCustom, setValorCustom]     = useState('')
   const [bidFeedback, setBidFeedback]     = useState<{ msg: string; ok: boolean } | null>(null)
   const [pendingBid, setPendingBid]       = useState<number | null>(null)
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [encerrandoCountdown, setEncerrandoCountdown] = useState<number | null>(null)
+  const timerRef          = useRef<ReturnType<typeof setInterval> | null>(null)
+  const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     if (!userId || role !== 'transportadora') navigate('/')
@@ -106,6 +108,28 @@ export default function AuctionPage() {
   }, [lastBidResponse, leilaoId])
 
   const { toasts, dismissToast } = useLeadershipNotifications(userId, lastUpdate, status, undefined)
+
+  // Mostra o countdown de encerramento broadcast pelo admin
+  useEffect(() => {
+    if (!countdownEvent || countdownEvent.leilao_id !== leilaoId) return
+    if (countdownTimerRef.current) clearInterval(countdownTimerRef.current)
+    if (countdownEvent.active) {
+      setEncerrandoCountdown(3)
+      let c = 3
+      countdownTimerRef.current = setInterval(() => {
+        c -= 1
+        setEncerrandoCountdown(c)
+        if (c <= 0) {
+          clearInterval(countdownTimerRef.current!)
+          setEncerrandoCountdown(null)
+        }
+      }, 1000)
+    } else {
+      // Cancelado por novo lance
+      setEncerrandoCountdown(null)
+    }
+    return () => { if (countdownTimerRef.current) clearInterval(countdownTimerRef.current) }
+  }, [countdownEvent, leilaoId])
 
   if (!userId) return null
 
@@ -157,6 +181,17 @@ export default function AuctionPage() {
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
+
+  // Usuário é o líder atual com pelo menos 1 lance
+  const isLeader = !!userId
+    && status?.transportadora_lider === userId
+    && (status?.total_lances ?? 0) > 0
+
+  const COUNTDOWN_LABELS: Record<number, string> = {
+    3: 'Dou-lhe uma!',
+    2: 'Dou-lhe duas!',
+    1: 'Dou-lhe três!',
+  }
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -303,61 +338,126 @@ export default function AuctionPage() {
                 </div>
               )}
 
-              {/* Área de lance — flex-1 para empurrar para baixo */}
-              <div className="flex-1 flex flex-col justify-end">
-                {!isAuctionClosed ? (
-                  <div className="p-4">
-                    <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">
-                      Dê o seu lance
-                    </p>
+              {/* Área de lance — preenche o espaço disponível */}
+              <div className="flex-1 flex flex-col">
+                {isAuctionClosed ? (
+                  <div className="p-4" />
 
-                    {/* Botões preset */}
+                ) : encerrandoCountdown !== null && isLeader ? (
+                  /* ── COUNTDOWN: usuário é o líder — não pode dar lance ── */
+                  <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+                    <div className="mb-3 bg-green-50 border border-green-200 rounded-xl px-4 py-2">
+                      <p className="text-green-700 font-bold text-sm">🏆 Você está com o melhor lance!</p>
+                      <p className="text-green-600 text-xs mt-0.5">Contagem iniciada — aguarde o resultado</p>
+                    </div>
+                    <p className="text-7xl font-black text-orange-500 tabular-nums my-3">
+                      {encerrandoCountdown}
+                    </p>
+                    <p className="text-base font-bold text-gray-700">
+                      {COUNTDOWN_LABELS[encerrandoCountdown] ?? '…'}
+                    </p>
+                  </div>
+
+                ) : encerrandoCountdown !== null && !isLeader ? (
+                  /* ── COUNTDOWN: usuário NÃO é o líder — pode dar lance para cancelar ── */
+                  <div className="p-4">
+                    <div className="text-center mb-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
+                      <p className="text-orange-700 font-bold text-sm">⚡ Leilão sendo encerrado!</p>
+                      <p className="text-5xl font-black text-orange-500 tabular-nums my-2">
+                        {encerrandoCountdown}
+                      </p>
+                      <p className="text-sm font-bold text-gray-700">
+                        {COUNTDOWN_LABELS[encerrandoCountdown] ?? '…'}
+                      </p>
+                      <p className="text-xs text-orange-500 mt-1 font-medium">
+                        Dê um lance para cancelar o encerramento!
+                      </p>
+                    </div>
+
+                    {/* Formulário de lance ainda disponível */}
                     <div className="grid grid-cols-3 gap-1.5 mb-3">
                       {presets.map(v => (
-                        <button key={v}
-                          onClick={() => handleSelectBid(v)}
-                          disabled={!connected}
-                          className={`py-2 px-1 text-xs font-semibold rounded transition-colors border
-                                      disabled:opacity-40
+                        <button key={v} onClick={() => handleSelectBid(v)} disabled={!connected}
+                          className={`py-2 px-1 text-xs font-semibold rounded transition-colors border disabled:opacity-40
                                       ${pendingBid === v
                                         ? 'bg-orange-500 text-white border-orange-500'
-                                        : 'bg-gray-100 hover:bg-orange-100 text-gray-700 border-gray-200 hover:border-orange-300'
-                                      }`}>
+                                        : 'bg-gray-100 hover:bg-orange-100 text-gray-700 border-gray-200 hover:border-orange-300'}`}>
                           {v.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </button>
                       ))}
                     </div>
-
-                    {/* Campo livre */}
                     <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 mb-3">
-                      <p className="text-xs text-gray-400 mb-2">
-                        Outro Valor:{' '}
-                        <span className="text-gray-500">Decremento mín.: {brl(step)}</span>
-                      </p>
                       <div className="flex gap-2">
                         <div className="relative flex-1">
                           <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">R$</span>
-                          <input
-                            type="number" value={valorCustom}
+                          <input type="number" value={valorCustom}
                             onChange={e => setValorCustom(e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && handleCustomBid()}
-                            placeholder="0,00" step="0.01" min="0.01"
-                            disabled={!connected}
-                            className="w-full pl-7 pr-2 py-1.5 border border-gray-300 rounded text-sm
-                                       focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:bg-gray-100"
-                          />
+                            placeholder="0,00" step="0.01" min="0.01" disabled={!connected}
+                            className="w-full pl-7 pr-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:bg-gray-100" />
                         </div>
-                        <button
-                          onClick={handleCustomBid}
-                          disabled={!connected || !valorCustom}
-                          className="bg-orange-500 hover:bg-orange-600 disabled:opacity-40
-                                     text-white font-semibold px-3 py-1.5 rounded text-sm whitespace-nowrap">
+                        <button onClick={handleCustomBid} disabled={!connected || !valorCustom}
+                          className="bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white font-semibold px-3 py-1.5 rounded text-sm whitespace-nowrap">
                           Selecionar
                         </button>
                       </div>
                     </div>
+                    {pendingBid !== null && (
+                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs text-orange-600 font-medium">Lance selecionado</p>
+                          <p className="text-base font-black text-orange-700">{brl(pendingBid)}</p>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <button onClick={() => setPendingBid(null)}
+                            className="text-xs border border-gray-300 text-gray-600 px-3 py-1.5 rounded hover:bg-gray-100">
+                            Cancelar
+                          </button>
+                          <button onClick={handleConfirmBid} disabled={!connected}
+                            className="text-xs bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white font-bold px-4 py-1.5 rounded">
+                            Confirmar lance
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
-                    {/* Barra de confirmação — aparece após selecionar valor */}
+                ) : (
+                  /* ── NORMAL: sem countdown ── */
+                  <div className="flex flex-col justify-end flex-1 p-4">
+                    <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">
+                      Dê o seu lance
+                    </p>
+                    <div className="grid grid-cols-3 gap-1.5 mb-3">
+                      {presets.map(v => (
+                        <button key={v} onClick={() => handleSelectBid(v)} disabled={!connected}
+                          className={`py-2 px-1 text-xs font-semibold rounded transition-colors border disabled:opacity-40
+                                      ${pendingBid === v
+                                        ? 'bg-orange-500 text-white border-orange-500'
+                                        : 'bg-gray-100 hover:bg-orange-100 text-gray-700 border-gray-200 hover:border-orange-300'}`}>
+                          {v.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 mb-3">
+                      <p className="text-xs text-gray-400 mb-2">
+                        Outro Valor: <span className="text-gray-500">Decremento mín.: {brl(step)}</span>
+                      </p>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">R$</span>
+                          <input type="number" value={valorCustom}
+                            onChange={e => setValorCustom(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleCustomBid()}
+                            placeholder="0,00" step="0.01" min="0.01" disabled={!connected}
+                            className="w-full pl-7 pr-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:bg-gray-100" />
+                        </div>
+                        <button onClick={handleCustomBid} disabled={!connected || !valorCustom}
+                          className="bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white font-semibold px-3 py-1.5 rounded text-sm whitespace-nowrap">
+                          Selecionar
+                        </button>
+                      </div>
+                    </div>
                     {pendingBid !== null ? (
                       <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 flex items-center justify-between gap-3">
                         <div>
@@ -365,16 +465,12 @@ export default function AuctionPage() {
                           <p className="text-base font-black text-orange-700">{brl(pendingBid)}</p>
                         </div>
                         <div className="flex gap-2 shrink-0">
-                          <button
-                            onClick={() => setPendingBid(null)}
+                          <button onClick={() => setPendingBid(null)}
                             className="text-xs border border-gray-300 text-gray-600 px-3 py-1.5 rounded hover:bg-gray-100">
                             Cancelar
                           </button>
-                          <button
-                            onClick={handleConfirmBid}
-                            disabled={!connected}
-                            className="text-xs bg-orange-500 hover:bg-orange-600 disabled:opacity-40
-                                       text-white font-bold px-4 py-1.5 rounded">
+                          <button onClick={handleConfirmBid} disabled={!connected}
+                            className="text-xs bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white font-bold px-4 py-1.5 rounded">
                             Confirmar lance
                           </button>
                         </div>
@@ -387,9 +483,6 @@ export default function AuctionPage() {
                       </div>
                     )}
                   </div>
-                ) : (
-                  /* Espaço vazio para manter a altura quando encerrado */
-                  <div className="p-4" />
                 )}
               </div>
             </div>

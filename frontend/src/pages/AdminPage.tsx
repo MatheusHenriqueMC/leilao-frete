@@ -21,8 +21,9 @@ export default function AdminPage() {
   const role   = sessionStorage.getItem('userRole')
 
   const {
-    connected, status, history, closeResponse, lastUpdate, error,
-    joinAuction, requestStatus, requestHistory, closeAuction, clearError,
+    connected, status, history, closeResponse, lastUpdate, countdownEvent, error,
+    joinAuction, requestStatus, requestHistory, closeAuction,
+    startCountdown, cancelCountdown, clearError,
   } = useSocket()
 
   const [joined, setJoined]         = useState(false)
@@ -60,12 +61,53 @@ export default function AdminPage() {
     }
   }, [connected, userId, joined, leilaoId, joinAuction, requestStatus, requestHistory])
 
+  // Resposta do servidor ao encerrar
   useEffect(() => {
     if (closeResponse?.leilao_id === leilaoId) {
       setClosing(false)
       setCountdown(null)
     }
   }, [closeResponse, leilaoId])
+
+  // Recebe evento countdown_started / countdown_cancelled do servidor
+  useEffect(() => {
+    if (!countdownEvent || countdownEvent.leilao_id !== leilaoId) return
+    if (countdownEvent.active) {
+      // Servidor confirmou — inicia contagem local
+      setClosing(true)
+      setCountdown(3)
+      let count = 3
+      intervalRef.current = setInterval(() => {
+        count -= 1
+        setCountdown(count)
+        if (count <= 0) {
+          if (intervalRef.current) clearInterval(intervalRef.current)
+          closeAuction(leilaoId, userId!)
+        }
+      }, 1000)
+    } else {
+      // Cancelado (novo lance chegou)
+      if (intervalRef.current) clearInterval(intervalRef.current)
+      setClosing(false)
+      setCountdown(null)
+    }
+  }, [countdownEvent, leilaoId, closeAuction, userId])
+
+  // Ref espelha closing sem ser dep do effect — evita disparo falso ao closing mudar
+  const closingRef = useRef(false)
+  useEffect(() => { closingRef.current = closing }, [closing])
+
+  // Cancela countdown apenas quando um NOVO lance chega (lastUpdate muda)
+  // closing está na ref, não nas deps, para não executar ao closing=true
+  useEffect(() => {
+    if (!lastUpdate || lastUpdate.leilao_id !== leilaoId) return
+    if (!closingRef.current) return   // não está em contagem, ignora
+    if (intervalRef.current) clearInterval(intervalRef.current)
+    cancelCountdown(leilaoId)
+    setClosing(false)
+    setCountdown(null)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastUpdate, leilaoId, cancelCountdown])  // closing propositalmente fora das deps
 
   // Countdown do timer do leilão (local)
   useEffect(() => {
@@ -97,17 +139,8 @@ export default function AdminPage() {
 
   function handleCloseClick() {
     if (closing || status?.encerrado || closeResponse?.sucesso) return
-    setClosing(true)
-    setCountdown(3)
-    let count = 3
-    intervalRef.current = setInterval(() => {
-      count -= 1
-      setCountdown(count)
-      if (count <= 0) {
-        if (intervalRef.current) clearInterval(intervalRef.current)
-        closeAuction(leilaoId, userId!)
-      }
-    }, 1000)
+    // Broadcast para toda a room — o countdown visual começa via countdownEvent
+    startCountdown(leilaoId)
   }
 
   if (!userId) return null

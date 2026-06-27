@@ -17,7 +17,8 @@ export function useSocket() {
   const [history, setHistory]         = useState<BidItem[]>([])
   const [lastBidResponse, setLastBidResponse] = useState<BidResponse | null>(null)
   const [lastUpdate, setLastUpdate]   = useState<AuctionUpdate | null>(null)
-  const [closeResponse, setCloseResponse] = useState<CloseResponse | null>(null)
+  const [closeResponse, setCloseResponse]   = useState<CloseResponse | null>(null)
+  const [countdownEvent, setCountdownEvent] = useState<{ leilao_id: number; active: boolean } | null>(null)
 
   // Auth / listings
   const [loginResponse, setLoginResponse]         = useState<LoginResponse | null>(null)
@@ -50,7 +51,11 @@ export function useSocket() {
     socket.on('status_response',  (d: AuctionStatus) => setStatus(d))
     socket.on('history_response', (d: { lances: BidItem[] }) => setHistory(d.lances))
     socket.on('bid_response',     (d: BidResponse)   => setLastBidResponse(d))
-    socket.on('close_response',   (d: CloseResponse) => setCloseResponse(d))
+    socket.on('close_response',      (d: CloseResponse) => setCloseResponse(d))
+    socket.on('countdown_started',   (d: { leilao_id: number }) =>
+      setCountdownEvent({ leilao_id: d.leilao_id, active: true }))
+    socket.on('countdown_cancelled', (d: { leilao_id: number }) =>
+      setCountdownEvent({ leilao_id: d.leilao_id, active: false }))
 
     socket.on('auction_update', (d: AuctionUpdate) => {
       setLastUpdate(d)
@@ -108,6 +113,14 @@ export function useSocket() {
     socketRef.current?.emit('close_auction', { leilao_id, admin_id })
   }, [])
 
+  const startCountdown = useCallback((leilao_id: number) => {
+    socketRef.current?.emit('start_countdown', { leilao_id })
+  }, [])
+
+  const cancelCountdown = useCallback((leilao_id: number) => {
+    socketRef.current?.emit('cancel_countdown', { leilao_id })
+  }, [])
+
   const listAuctions = useCallback((apenas_ativos: boolean) => {
     socketRef.current?.emit('list_auctions', { apenas_ativos })
   }, [])
@@ -140,10 +153,10 @@ export function useSocket() {
     loginResponse, createResult, auctionsList, auctionDetail,
     carrierHistory, resolveCodeResult,
     error,
-    createCarrierResult,
+    createCarrierResult, countdownEvent,
     // actions
     login, createAuction, createCarrier, joinAuction, placeBid,
-    requestStatus, requestHistory, closeAuction,
+    requestStatus, requestHistory, closeAuction, startCountdown, cancelCountdown,
     listAuctions, fetchAuctionDetail, fetchCarrierHistory, resolveCode,
     clearError, clearCreate, clearCreateCarrier,
   }

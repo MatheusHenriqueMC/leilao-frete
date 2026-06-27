@@ -287,6 +287,22 @@ def on_history(data):
         emit("error", {"mensagem": f"Erro: {e.details()}"})
 
 
+@socketio.on("start_countdown")
+def on_start_countdown(data):
+    """Admin inicia o countdown — broadcast para todos na room do leilão."""
+    leilao_id = int(data.get("leilao_id", 0))
+    socketio.emit("countdown_started", {"leilao_id": leilao_id}, to=_room(leilao_id))
+    logger.info("Countdown iniciado para leilão %d", leilao_id)
+
+
+@socketio.on("cancel_countdown")
+def on_cancel_countdown(data):
+    """Cancela o countdown em andamento — broadcast para todos na room."""
+    leilao_id = int(data.get("leilao_id", 0))
+    socketio.emit("countdown_cancelled", {"leilao_id": leilao_id}, to=_room(leilao_id))
+    logger.info("Countdown cancelado para leilão %d", leilao_id)
+
+
 @socketio.on("close_auction")
 def on_close_auction(data):
     admin_id  = data.get("admin_id", "").strip()
