@@ -12,7 +12,7 @@ Sistema distribuído cliente-servidor para leilão reverso de fretes. Transporta
 | Comunicação | gRPC + Protocol Buffers | Contrato tipado via `.proto`, serialização binária eficiente e suporte a server streaming para notificações |
 | Concorrência | `threading` + `Lock` | Integrado ao `ThreadPoolExecutor` do gRPC; permite demonstrar exclusão mútua explícita na seção crítica |
 | Persistência | PostgreSQL + SQLAlchemy | Persistência dos leilões e lances entre reinicializações do servidor |
-| Gateway | Flask + Flask-SocketIO | BFF (Backend for Frontend) que traduz WebSocket/polling ↔ gRPC |
+| Gateway | Flask + Flask-SocketIO | BFF (Backend for Frontend) que traduz HTTP long-polling ↔ gRPC |
 | Frontend | React + TypeScript + Vite + Tailwind CSS | Interface responsiva e em tempo real para transportadoras e administradores |
 | Infraestrutura | Docker Compose | Orquestração dos serviços: banco, servidor gRPC e gateway |
 
@@ -21,7 +21,7 @@ Sistema distribuído cliente-servidor para leilão reverso de fretes. Transporta
 - **Python vs Java/Go/Node.js:** Java traz boilerplate excessivo para o escopo. Go exigiria aprender uma linguagem nova em paralelo. Node.js (single-threaded) esconderia os problemas de sincronização que o projeto exige demonstrar.
 - **gRPC vs REST vs Socket puro:** O enunciado exige framework (não socket puro). REST não suporta push nativo do servidor — exigiria polling. gRPC com server streaming resolve notificações de forma nativa.
 - **threading vs asyncio:** `asyncio` elimina race conditions por design, removendo a oportunidade de demonstrar sincronização explícita com `Lock`. A API `grpc.aio` também possui inconsistências entre versões.
-- **Flask-SocketIO como gateway:** O React não fala gRPC diretamente — o gateway traduz eventos de polling/WebSocket em chamadas gRPC, isolando o frontend da camada de transporte.
+- **Flask-SocketIO como gateway:** O React não fala gRPC diretamente — o gateway traduz eventos de HTTP long-polling em chamadas gRPC, isolando o frontend da camada de transporte. WebSocket não é usado para evitar conflito com as threads C do gRPC.
 
 ## Estrutura do Projeto
 
@@ -34,7 +34,7 @@ freight-auction/
 │   ├── database.py                # Modelos SQLAlchemy e CRUD (PostgreSQL)
 │   └── server.py                  # Servidor gRPC multicliente (porta 50051)
 ├── gateway/
-│   └── gateway.py                 # WebSocket/polling gateway (Flask-SocketIO)
+│   └── gateway.py                 # HTTP long-polling gateway (Flask-SocketIO, threading mode)
 ├── frontend/
 │   └── src/
 │       ├── hooks/useSocket.ts     # Hook central de comunicação com o gateway
@@ -89,7 +89,7 @@ Exibe em tempo real:
 - **Timer de encerramento** — contagem regressiva local sincronizada com o servidor
 - **Histórico de lances** — tabela com Nº, valor, data/hora e arrematante (lances próprios destacados)
 - **Formulário de lance** — botões de valores pré-calculados + campo livre, com etapa de confirmação antes do envio para evitar cliques acidentais
-- **Alerta visual de perda de liderança** — ao receber um `auction_update` com novo líder diferente do usuário, o banner de vencedor atualiza imediatamente indicando quem assumiu a liderança
+- **Notificação sonora e visual de perda de liderança** — ao receber um `auction_update` com novo líder diferente do usuário, um toast laranja desliza no canto superior direito com som de 3 bipes, exibindo o nome do leilão, a transportadora que assumiu e o valor do lance
 
 ### Painel do Administrador (`AdminDashboard` + `AdminPage`)
 
@@ -185,7 +185,7 @@ Abra **abas separadas** no browser em `http://localhost:5173`. Cada aba tem sua 
 Na aba do admin:
 1. Clique em **Criar Leilão**
 2. Preencha título, especificações e lance inicial (ex: R$ 10.000)
-3. Defina tempo curto (ex: 300 segundos = 5 minutos) para pressionar as transportadoras
+3. Defina tempo curto em **minutos** (ex: `5` = 5 minutos) para pressionar as transportadoras
 4. Adicione uma foto de capa
 5. Copie o **código de acesso** gerado e compartilhe com as transportadoras
 
