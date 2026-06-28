@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   AppBar, Toolbar, Container, Box, Stack, Typography, Button, IconButton, Paper,
-  Table, TableHead, TableBody, TableRow, TableCell, Divider, InputAdornment, TextField,
+  Table, TableHead, TableBody, TableRow, TableCell, Divider, InputAdornment, TextField, Chip,
 } from '@mui/material'
 import { keyframes } from '@mui/system'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
@@ -343,33 +343,44 @@ export default function AuctionPage() {
                 )}
               </Box>
 
-              {/* Grid de valores */}
+              {/* Menor lance atual — protagonista da tela */}
+              <Box sx={{ px: 2, py: 2, textAlign: 'center', flexShrink: 0, borderBottom: '1px solid', borderColor: 'divider' }}>
+                <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  {isAuctionClosed ? 'Lance final' : (status?.total_lances ?? 0) > 0 ? 'Menor lance atual' : 'Lance inicial'}
+                </Typography>
+                <Typography sx={{ fontSize: 36, fontWeight: 800, color: 'primary.dark', fontVariantNumeric: 'tabular-nums', lineHeight: 1.1, mt: 0.25, mb: 0.75 }}>
+                  {brl(menorLance)}
+                </Typography>
+                {!isAuctionClosed && (
+                  (status?.total_lances ?? 0) > 0 ? (
+                    isLeader ? (
+                      <Chip size="small" color="success" variant="outlined"
+                        icon={<EmojiEventsIcon />} label="Você está na frente" />
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Líder: <Box component="strong" sx={{ color: 'text.primary' }}>{status?.transportadora_lider}</Box>
+                      </Typography>
+                    )
+                  ) : (
+                    <Typography variant="caption" color="text.disabled">Seja o primeiro a dar um lance</Typography>
+                  )
+                )}
+              </Box>
+
+              {/* Stats secundarios */}
               <Box sx={{
                 display: 'grid', gridTemplateColumns: '1fr 1fr', flexShrink: 0,
                 borderBottom: '1px solid', borderColor: 'divider',
-                '& > *': { px: 2, py: 1.5, borderColor: 'divider' },
-                '& > *:nth-of-type(1)': { borderRight: '1px solid', borderBottom: '1px solid' },
-                '& > *:nth-of-type(2)': { borderBottom: '1px solid' },
-                '& > *:nth-of-type(3)': { borderRight: '1px solid' },
+                '& > *': { px: 2, py: 1.25 },
+                '& > *:first-of-type': { borderRight: '1px solid', borderColor: 'divider' },
               }}>
                 <Box>
-                  <Typography variant="caption" color="primary.dark" fontWeight={500}>Lance inicial</Typography>
+                  <Typography variant="caption" color="text.disabled">Lance inicial</Typography>
                   <Typography variant="body2" fontWeight={600}>{status ? brl(status.valor_inicial) : '—'}</Typography>
                 </Box>
                 <Box>
-                  <Typography variant="caption" color="primary.dark" fontWeight={500}>Lances</Typography>
+                  <Typography variant="caption" color="text.disabled">Total de lances</Typography>
                   <Typography variant="body2" fontWeight={600}>{status?.total_lances ?? 0}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.disabled">Último lance</Typography>
-                  <Typography variant="body2" fontWeight={700}
-                    color={(status?.total_lances ?? 0) > 0 ? 'primary.dark' : 'text.disabled'}>
-                    {(status?.total_lances ?? 0) > 0 ? brl(status!.menor_lance) : '—'}
-                  </Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.disabled">Líder</Typography>
-                  <Typography variant="body2" fontWeight={500} noWrap>{status?.transportadora_lider || '—'}</Typography>
                 </Box>
               </Box>
 
