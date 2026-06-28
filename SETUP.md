@@ -4,9 +4,9 @@ Guia passo a passo para subir a Plataforma de Negociação de Fretes localmente.
 
 ## Pré-requisitos
 
-- **Docker** e **Docker Compose** (para o backend: banco, servidor gRPC e gateway)
+- **Docker** e **Docker Compose** (para o backend: banco, auth-service, auction-service e gateway)
 - **Node.js 18+** e **npm** (para o frontend)
-- Portas livres: `5432` (Postgres), `50051` (gRPC), `5000` (gateway), `5173` (frontend)
+- Portas livres: `5432` (Postgres), `50051` (auction-service), `50052` (auth-service), `5000` (gateway), `5173` (frontend)
 
 > Opcional, só se for rodar o backend sem Docker: Python 3.12.
 
@@ -18,13 +18,14 @@ Na raiz do projeto:
 docker-compose up --build
 ```
 
-Isso sobe três serviços, na ordem correta:
+Isso sobe quatro serviços, na ordem correta:
 
 1. **PostgreSQL** na porta `5432`
-2. **Servidor gRPC** na porta `50051` (espera o banco ficar saudável)
-3. **Gateway** na porta `5000` (espera o servidor gRPC ficar saudável)
+2. **auth-service** (gRPC) na porta `50052` (espera o banco ficar saudável)
+3. **auction-service** (gRPC) na porta `50051` (espera o banco ficar saudável)
+4. **gateway** na porta `5000` (espera os dois serviços ficarem saudáveis)
 
-O `Dockerfile` gera os stubs gRPC automaticamente a partir do `protos/freight.proto`, então não é preciso rodar o `protoc` à mão.
+Cada serviço tem seu próprio `Dockerfile`, que gera os stubs gRPC do seu proto (`auth.proto` e/ou `auction.proto`) automaticamente no build. Não é preciso rodar o `protoc` à mão.
 
 Deixe esse terminal aberto. Para parar, use `Ctrl+C`.
 
@@ -55,7 +56,7 @@ VITE_GATEWAY_URL=http://localhost:5000
 
 Fluxo básico:
 
-1. Logue como **admin**.
+1. Logue como **admin** (autenticado pelo auth-service).
 2. Crie uma ou mais **contas de transportadora** (botão "Criar conta de transportadora").
 3. Crie um **leilão** (título, valor inicial, timer opcional, imagem). Anote o **código de acesso**.
 4. Em outras abas, logue como as transportadoras e entre no leilão pelo código.
@@ -65,14 +66,17 @@ Fluxo básico:
 
 ## Passo 4 (opcional) - Cliente CLI
 
-O cliente de texto fala gRPC direto com o servidor (porta 50051). Requer Python 3.12 e as dependências instaladas:
+O cliente de texto fala gRPC direto com o **auction-service** (porta 50051). Requer Python 3.12, as dependências e os stubs gerados:
 
 ```bash
-pip install -r requirements.txt
-python -m client.client
+pip install -r services/auction/requirements.txt
+mkdir -p client/generated
+python -m grpc_tools.protoc -I protos/ \
+  --python_out=client/generated/ --grpc_python_out=client/generated/ protos/auction.proto
+python client/client.py
 ```
 
-> Atenção: o `client/client.py` reflete uma versão anterior do protocolo (leilão único, sem `leilao_id`) e pode não funcionar contra o servidor multi-leilão atual. Use-o apenas como referência do protocolo de texto, ou ajuste antes de demonstrar.
+O cliente pede o ID da transportadora e o ID do leilão, e aceita os comandos `BID <valor>`, `STATUS` e `SAIR`.
 
 ## Demonstrar a disputa concorrente
 
@@ -81,53 +85,46 @@ Para mostrar a sincronização (o ponto central do projeto):
 1. Crie um leilão com timer curto (ex.: 5 minutos).
 2. Abra três abas de transportadora e entre todas no mesmo leilão.
 3. Clique no mesmo valor de lance em abas diferentes quase ao mesmo tempo.
-4. No log do servidor, observe um lance aceito e os demais rejeitados com "Lance deve ser menor que ...".
-
-Exemplo de log esperado:
-
-```
-[...] INFO - Lance recebido: R$ 9500.00 da transportadora 'translog_sp'
-[...] INFO - Lance aceito! Novo menor lance: R$ 9500.00
-[...] INFO - Lance recebido: R$ 9500.00 da transportadora 'translog_rj'
-[...] INFO - Lance rejeitado: Lance deve ser menor que 9500.00.
-```
+4. Uma aba recebe "Lance registrado com sucesso!" e as demais "Lance deve ser menor que ...". Nos logs do **auction-service** aparecem as notificações enviadas a cada lance aceito.
 
 ## Rodar o backend sem Docker (alternativa)
 
-Se preferir não usar Docker para o backend, é preciso ter um PostgreSQL rodando e Python 3.12.
+Se preferir não usar Docker, é preciso ter um PostgreSQL rodando e Python 3.12. Copie `.env.example` para `.env` e ajuste o `DATABASE_URL` para o seu Postgres.
 
 ```bash
-# 1. Instalar dependências
-pip install -r requirements.txt
+# Dependencias (grpcio-tools vem em qualquer requirements de servico)
+pip install -r services/auction/requirements.txt -r gateway/requirements.txt
 
-# 2. Gerar os stubs gRPC
-python -m grpc_tools.protoc -I protos/ --python_out=generated/ --grpc_python_out=generated/ protos/freight.proto
+# Gera os stubs de cada componente
+mkdir -p services/auth/generated services/auction/generated gateway/generated
+python -m grpc_tools.protoc -I protos/ --python_out=services/auth/generated/ --grpc_python_out=services/auth/generated/ protos/auth.proto
+python -m grpc_tools.protoc -I protos/ --python_out=services/auction/generated/ --grpc_python_out=services/auction/generated/ protos/auction.proto
+python -m grpc_tools.protoc -I protos/ --python_out=gateway/generated/ --grpc_python_out=gateway/generated/ protos/auth.proto protos/auction.proto
 
-# 3. Configurar variáveis (copie .env.example para .env e ajuste se necessário)
-#    DATABASE_URL aponta para o seu Postgres local.
-
-# 4. Subir o servidor gRPC
-python -m server.server
-
-# 5. Em outro terminal, subir o gateway
-python -m gateway.gateway
+# Sobe cada componente (em terminais separados)
+python services/auth/server.py
+python services/auction/server.py
+python gateway/gateway.py
 ```
 
-Variáveis de ambiente disponíveis (ver `.env.example`):
+Variáveis de ambiente (ver `.env.example`):
 
 | Variável | Padrão | Onde é usada |
 |---|---|---|
-| `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/freight_auction` | Servidor |
-| `ADMIN_USERNAME` | `admin` | Servidor |
-| `ADMIN_PASSWORD` | `admin123` | Servidor |
-| `GRPC_HOST` | `localhost` | Gateway |
-| `GRPC_PORT` | `50051` | Gateway |
-| `GATEWAY_PORT` | `5000` | Gateway |
-| `CORS_ORIGINS` | `http://localhost:5173` | Gateway |
+| `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/freight_auction` | auth-service, auction-service |
+| `ADMIN_USERNAME` | `admin` | auth-service |
+| `ADMIN_PASSWORD` | `admin123` | auth-service |
+| `AUTH_PORT` | `50052` | auth-service |
+| `AUCTION_PORT` | `50051` | auction-service |
+| `AUTH_HOST` / `AUTH_PORT` | `localhost` / `50052` | gateway (alvo do auth) |
+| `AUCTION_HOST` / `AUCTION_PORT` | `localhost` / `50051` | gateway (alvo do auction) |
+| `GATEWAY_PORT` | `5000` | gateway |
+| `CORS_ORIGINS` | `http://localhost:5173` | gateway |
 
 ## Solução de problemas
 
-- **Frontend não conecta no gateway:** confirme que o gateway está em `http://localhost:5000` (`GET /health` deve responder `{"status":"ok"}`) e que `CORS_ORIGINS` inclui `http://localhost:5173`.
-- **Servidor gRPC não sobe:** ele depende do banco estar saudável. Veja se o serviço `db` do Docker subiu sem erro.
-- **Porta ocupada:** alguma das portas (5432, 50051, 5000, 5173) já está em uso. Libere-a ou ajuste a configuração.
+- **Frontend não conecta no gateway:** confirme que o gateway está em `http://localhost:5000` (`GET /health` deve responder `{"status":"ok", ...}`) e que `CORS_ORIGINS` inclui `http://localhost:5173`.
+- **Um serviço gRPC não sobe:** auth-service e auction-service dependem do banco saudável. Veja se o serviço `db` do Docker subiu sem erro.
+- **Login falha mas leilão funciona (ou vice-versa):** os dois caminhos passam por serviços diferentes. Cheque os logs do **auth-service** (login/contas) ou do **auction-service** (leilões/lances) conforme o caso.
+- **Porta ocupada:** alguma das portas (5432, 50051, 50052, 5000, 5173) já está em uso. Libere-a ou ajuste a configuração.
 - **Atualizações não chegam em tempo real:** o frontend usa long-polling (latência abaixo de 1s). Recarregue a aba e confirme que a transportadora entrou no leilão pelo código.

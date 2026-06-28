@@ -18,14 +18,15 @@ A frase que vale a nota é a última: **sincronização e ordenação total de e
 
 | Exigência do enunciado | Conceito de SD/Redes | Onde está no código |
 |---|---|---|
-| Cliente-servidor | Arquitetura cliente-servidor | `server/server.py` (servidor), `client/client.py` e `frontend/` (clientes) |
-| Usar framework (não socket puro) | RPC, contrato tipado, serialização binária | `protos/freight.proto` + gRPC sobre HTTP/2 |
-| `BID <valor>` valida menor lance | Validação no servidor, estado compartilhado | `server/auction.py::registrar_lance()` |
-| `STATUS` | Operação request-response (RPC unário) | `GetStatus` em `server/server.py` |
-| Notificar todos a cada lance menor | Comunicação push, modelo publish/subscribe | `SubscribeUpdates` (server streaming) + filas por subscriber |
-| Ordem de chegada define vencedor, sem empate | Exclusão mútua, seção crítica, ordenação total | `threading.Lock()` em `AuctionState` |
+| Cliente-servidor | Arquitetura cliente-servidor (microsserviços) | `services/auth/server.py` e `services/auction/server.py` (servidores), `client/client.py` e `frontend/` (clientes) |
+| Usar framework (não socket puro) | RPC, contrato tipado, serialização binária | `protos/auth.proto` e `protos/auction.proto` + gRPC sobre HTTP/2 |
+| `BID <valor>` valida menor lance | Validação no servidor, estado compartilhado | `services/auction/state.py::registrar_lance()` |
+| `STATUS` | Operação request-response (RPC unário) | `GetStatus` em `services/auction/server.py` |
+| Notificar todos a cada lance menor | Comunicação push, modelo publish/subscribe | `SubscribeUpdates` (server streaming) + `services/auction/notifier.py` |
+| Ordem de chegada define vencedor, sem empate | Exclusão mútua, seção crítica, ordenação total | `threading.Lock()` em `AuctionState` (`services/auction/state.py`) |
 | Múltiplos clientes simultâneos | Concorrência, threads | `ThreadPoolExecutor(max_workers=20)` no gRPC |
-| Servidor persistente | Persistência / tolerância a reinício | `server/database.py` (PostgreSQL) |
+| Servidor persistente | Persistência / tolerância a reinício | `services/auth/database.py` e `services/auction/database.py` (PostgreSQL) |
+| Sistema em serviços independentes | Decomposição em microsserviços, comunicação serviço-a-serviço | gateway -> auth-service e gateway -> auction-service (gRPC) |
 
 ---
 
@@ -33,15 +34,17 @@ A frase que vale a nota é a última: **sincronização e ordenação total de e
 
 **O que falar:** o enunciado pedia evoluir de sockets TCP/UDP puros para um framework de mercado. Escolhemos gRPC porque ele entrega de graça três coisas que teríamos que implementar à mão com socket puro:
 
-1. **Contrato tipado** (`protos/freight.proto`): o `.proto` define mensagens e RPCs. Cliente e servidor são gerados a partir dele (`generated/`), então o formato dos dados nunca diverge.
+1. **Contrato tipado** (`protos/auth.proto` e `protos/auction.proto`): o `.proto` define mensagens e RPCs. Cliente e servidor são gerados a partir dele, então o formato dos dados nunca diverge.
 2. **Serialização binária** (Protocol Buffers): mais compacta e rápida que texto/JSON.
 3. **Transporte HTTP/2**: multiplexação de várias chamadas numa conexão e suporte nativo a **streaming**.
 
-**O que mostrar:** abrir o `freight.proto`, mostrar o serviço `FreightAuction`, os RPCs unários e o `SubscribeUpdates` marcado como `stream`. Explicar que o stub é gerado pelo `protoc` (acontece no `Dockerfile`).
+**O que mostrar:** abrir os dois protos, mostrar o `AuthService` (login/contas) e o `AuctionService` (leilões/lances), os RPCs unários e o `SubscribeUpdates` marcado como `stream`. Explicar que cada serviço gera seus stubs com `protoc` no próprio `Dockerfile`.
 
 **Tipos de RPC usados (vale citar):**
-- **Unário** (request -> response único): `PlaceBid`, `GetStatus`, `Login`, etc. É o `BID` e o `STATUS` do enunciado.
+- **Unário** (request -> response único): `PlaceBid`, `GetStatus` (AuctionService), `Login` (AuthService), etc. É o `BID` e o `STATUS` do enunciado.
 - **Server streaming** (uma requisição, vários responses ao longo do tempo): `SubscribeUpdates`. É a notificação push.
+
+**Microsserviços (ponto forte de SD):** o backend foi dividido em dois serviços gRPC independentes (auth-service e auction-service), cada um com seu deploy e suas tabelas. O gateway é cliente dos dois. Isso demonstra **comunicação serviço-a-serviço** e decomposição por domínio, mantendo o núcleo de sincronização inteiro dentro do auction-service.
 
 ---
 
@@ -49,7 +52,7 @@ A frase que vale a nota é a última: **sincronização e ordenação total de e
 
 **Exigência:** "o servidor deve validar se o valor é menor que o lance atual e, se válido, registrar".
 
-**Implementação** (`server/auction.py::registrar_lance`):
+**Implementação** (`services/auction/state.py::registrar_lance`):
 
 ```python
 with self._lock:
@@ -84,11 +87,13 @@ Este é um requisito de **comunicação iniciada pelo servidor** (push). Com RES
 
 **Como funciona (modelo publish/subscribe simples):**
 
-1. Cada cliente que quer receber atualizações abre o stream `SubscribeUpdates`. O servidor cria uma `queue.Queue` para esse subscriber e a guarda numa lista por leilão (`self._subscribers[leilao_id]`).
-2. Quando um lance é aceito, `_notificar()` monta um `AuctionUpdate` e o coloca **na fila de cada subscriber** daquele leilão.
-3. Cada stream está num laço fazendo `fila.get()` e `yield update`, entregando a mensagem pela conexão HTTP/2 aberta.
+1. Cada cliente que quer receber atualizações abre o stream `SubscribeUpdates`. O `Notifier` (`services/auction/notifier.py`) cria uma `queue.Queue` para esse subscriber, indexada por leilão.
+2. Quando um lance é aceito, o servidor publica um evento via `Notifier.publish()`, que o coloca **na fila de cada subscriber** daquele leilão.
+3. Cada stream está num laço fazendo `fila.get()` e `yield`, entregando a mensagem pela conexão HTTP/2 aberta.
 
-**Isolamento por leilão:** as notificações de um leilão não vazam para outro. No servidor, os subscribers são indexados por `leilao_id`; no gateway, por rooms `leilao_<id>` do Socket.IO.
+**Isolamento por leilão:** as notificações de um leilão não vazam para outro. No auction-service, os subscribers são indexados por `leilao_id`; no gateway, por rooms `leilao_<id>` do Socket.IO.
+
+> O `Notifier` encapsula esse broadcast atrás de uma interface simples (`subscribe`/`unsubscribe`/`publish`). Hoje usa filas em memória; numa evolução futura, a implementação interna pode virar Redis pub/sub sem mudar o servicer.
 
 **O que mostrar:** abrir duas abas no mesmo leilão, dar um lance numa e ver a outra atualizar sozinha, sem refresh.
 
@@ -115,7 +120,7 @@ Isto é o problema clássico de **seção crítica** e **exclusão mútua**. Vá
 
 **Otimização que mostra maturidade:** a persistência no banco fica **fora** do lock. Dentro do lock só há operações de memória (rápidas); o `INSERT` lento no Postgres roda depois de liberar. Isso mantém a seção crítica curta e não serializa o banco junto com a lógica.
 
-**O que mostrar:** o trecho do `with self._lock` no `auction.py` e o log do servidor com um lance aceito seguido de um rejeitado pelo mesmo valor.
+**O que mostrar:** o trecho do `with self._lock` em `services/auction/state.py` e a resposta do auction-service com um lance aceito seguido de um rejeitado pelo mesmo valor.
 
 ---
 
@@ -133,21 +138,24 @@ Isto é o problema clássico de **seção crítica** e **exclusão mútua**. Vá
 
 **Exigência:** "o servidor deve ser persistente".
 
-- PostgreSQL via SQLAlchemy (`server/database.py`): tabelas de leilões, lances e transportadoras.
-- Leilões **ativos** vivem em memória (fonte da verdade rápida para a concorrência); o banco guarda tudo para histórico e para sobreviver a reinício.
-- No startup, o servidor recarrega os leilões ativos do banco para a memória (`_recarregar_leiloes_ativos`).
+- PostgreSQL via SQLAlchemy, **Postgres compartilhado com donos separados**: o auth-service é dono da tabela `transportadoras` (`services/auth/database.py`); o auction-service é dono de `leiloes` e `lances` (`services/auction/database.py`). Não há FK cruzada entre os serviços.
+- Leilões **ativos** vivem em memória no auction-service (fonte da verdade rápida para a concorrência); o banco guarda tudo para histórico e para sobreviver a reinício.
+- No startup, o auction-service recarrega os leilões ativos do banco para a memória (`_recarregar_leiloes_ativos`).
 
 ---
 
-## 10. A arquitetura de 4 camadas (e por que o gateway existe)
+## 10. A arquitetura (microsserviços + por que o gateway existe)
 
-O enunciado pede cliente + servidor gRPC. Entregamos isso (o `client/client.py` cumpre `BID`/`STATUS` ao pé da letra) e, por cima, uma interface web.
+O backend é composto por **dois microsserviços gRPC independentes** mais um gateway:
+- **auth-service** (porta 50052): login e contas. Dono da tabela `transportadoras`.
+- **auction-service** (porta 50051): leilões, lances, o `Lock` de sincronização, status, histórico e streaming. Dono de `leiloes` e `lances`.
+- **gateway**: é cliente gRPC dos dois e a ponte para o navegador.
 
-**O problema:** o navegador **não fala gRPC** (precisaria de gRPC-Web + proxy). 
+**Comunicação serviço-a-serviço:** o gateway abre um canal gRPC para cada serviço e roteia por domínio (login/cadastro -> auth-service; o resto -> auction-service). É comunicação real entre processos pela rede, com contratos `.proto` distintos. O núcleo de sincronização permanece inteiro no auction-service, então a divisão não enfraquece a garantia de ordenação dos lances.
 
-**A solução:** um **gateway (BFF, Backend for Frontend)** que traduz:
-- Recebe eventos **Socket.IO** do navegador e os converte em chamadas **gRPC** ao servidor.
-- Mantém **uma thread de stream gRPC por leilão**; ao receber um `AuctionUpdate`, faz `emit` para a room do leilão. É um **fan-out**: 1 conexão gRPC com o servidor reespalha para N navegadores.
+**Por que o gateway existe:** o navegador **não fala gRPC** (precisaria de gRPC-Web + proxy). O gateway (BFF, Backend for Frontend):
+- Recebe eventos **Socket.IO** do navegador e os converte em chamadas **gRPC** ao serviço certo.
+- Mantém **uma thread de stream gRPC por leilão** contra o auction-service; ao receber um `AuctionUpdate`, faz `emit` para a room do leilão. É um **fan-out**: 1 conexão gRPC reespalha para N navegadores.
 
 **Por que long-polling e não WebSocket:** o gRPC usa extensões C com threads próprias. O `eventlet`/WebSocket do Socket.IO faz monkey-patching que conflita com isso e derruba a conexão. O long-polling tem latência abaixo de 1s para poucos usuários, suficiente para o leilão. **É uma limitação consciente, não um bug.**
 
@@ -156,7 +164,7 @@ O enunciado pede cliente + servidor gRPC. Entregamos isso (o `client/client.py` 
 ## 11. Diagrama de sequência (lance concorrente)
 
 ```
-Transp. A         Gateway          Servidor gRPC         Transp. B
+Transp. A         Gateway        auction-service         Transp. B
    |                 |                   |                    |
    |--bid 9500------>|                   |                    |
    |                 |--PlaceBid(9500)-->|                    |
@@ -189,10 +197,10 @@ Transp. A         Gateway          Servidor gRPC         Transp. B
 
 ## 13. Roteiro sugerido de demonstração (5 min)
 
-1. Mostrar o `freight.proto` (contrato) e citar gRPC + streaming. (30s)
-2. Logar como admin, criar transportadoras e um leilão com timer curto. (1 min)
+1. Mostrar os dois protos (`auth.proto` e `auction.proto`) e o compose com os serviços; citar gRPC + streaming + comunicação serviço-a-serviço. (45s)
+2. Logar como admin (passa pelo auth-service), criar transportadoras e um leilão com timer curto. (1 min)
 3. Abrir 2-3 abas de transportadora no mesmo leilão. (30s)
 4. Dar lances normais e mostrar a atualização em tempo real em todas as abas. (1 min)
-5. **Clímax:** clicar no mesmo valor em duas abas quase juntas; mostrar no log do servidor um aceito e um rejeitado. Explicar o lock. (1,5 min)
+5. **Clímax:** clicar no mesmo valor em duas abas quase juntas; mostrar um aceito e um rejeitado (logs do auction-service). Explicar o lock. (1,5 min)
 6. Encerrar com o countdown "Dou-lhe uma, duas, três" e mostrar o vencedor. (30s)
-7. (Opcional) Mostrar o cliente CLI falando gRPC direto, sem o frontend.
+7. (Opcional) Mostrar o cliente CLI falando gRPC direto com o auction-service, sem o frontend.
