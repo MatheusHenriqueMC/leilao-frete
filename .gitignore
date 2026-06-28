@@ -221,3 +221,6 @@ node_modules/
 
 # Material interno (não versionar)
 *.pdf
+
+# Stubs gRPC gerados pelo protoc (cada servico gera os seus no build)
+generated/
