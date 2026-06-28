@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Box, Paper, TextField, Button, Stack, Alert } from '@mui/material'
+import { Box, Paper, TextField, Button, Stack, Alert, Typography } from '@mui/material'
 import { useSocket } from '../hooks/useSocket'
 import Logo from '../components/Logo'
 
@@ -31,13 +31,20 @@ export default function LoginPage() {
 
   return (
     <Box sx={{
-      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      bgcolor: 'background.default', p: 2,
+      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2,
+      background: 'radial-gradient(1100px 520px at 50% -10%, #fff7ed 0%, #f3f4f6 46%)',
     }}>
-      <Paper variant="outlined" sx={{ width: '100%', maxWidth: 400, p: 4 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'center', mb: 4 }}>
-          <Logo height={160} />
-        </Box>
+      <Paper elevation={0} sx={{
+        width: '100%', maxWidth: 400, p: { xs: 3, sm: 4.5 }, borderRadius: 4,
+        border: '1px solid', borderColor: 'divider',
+        boxShadow: '0 10px 40px rgba(17,24,39,0.08)',
+      }}>
+        <Stack alignItems="center" spacing={0.75} sx={{ mb: 3.5 }}>
+          <Logo height={148} />
+          <Typography variant="body2" color="text.secondary" textAlign="center">
+            Plataforma de leilão reverso de fretes
+          </Typography>
+        </Stack>
 
         <form onSubmit={handleSubmit}>
           <Stack spacing={2.5}>

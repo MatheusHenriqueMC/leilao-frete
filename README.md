@@ -81,7 +81,7 @@ leilao-frete/
 │   ├── pages/                  # Login, AdminDashboard, AdminPage,
 │   │                           #   TransportadoraDashboard, AuctionPage
 │   └── components/             # StatusPanel, BidHistory, modais, toasts (MUI)
-├── docs/                       # SETUP.md (como rodar) e REDES.md (apresentação)
+├── docs/                       # SETUP.md (rodar), REDES.md (apresentação), TESTES.md (plano de testes)
 ├── docker-compose.yml
 └── README.md
 ```

@@ -130,7 +130,13 @@ export default function TransportadoraDashboard() {
           <Toolbar disableGutters sx={{ gap: 2 }}>
             <Logo height={52} />
             <Box flexGrow={1} />
-            <Typography variant="body2" color="text.secondary">{userId}</Typography>
+            <Chip
+              icon={<LocalShippingIcon />}
+              label={userId}
+              size="small"
+              color="primary"
+              variant="outlined"
+            />
             <Button color="primary" onClick={() => setShowHistory(true)}>Meu histórico</Button>
             <Button color="inherit" onClick={() => { sessionStorage.clear(); navigate('/') }}>Sair</Button>
           </Toolbar>
