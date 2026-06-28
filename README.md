@@ -12,6 +12,18 @@ Sistema distribuído cliente-servidor para **leilão reverso de fretes**. O serv
 - Quando um lance é aceito, o serviço faz **push** para todos os participantes via server streaming, sem polling.
 - O navegador não fala gRPC, então um **gateway** traduz Socket.IO para gRPC e roteia para o serviço certo.
 
+## Stack utilizada
+
+| Camada | Tecnologia | Por quê |
+|---|---|---|
+| Frontend | React + TypeScript + Vite + MUI | Interface reativa e tipada; MUI dá componentes prontos e consistentes |
+| Comunicação navegador | Socket.IO (HTTP long-polling) | Push do servidor para o browser sem conflitar com as threads C do gRPC |
+| Gateway (BFF) | Flask + Flask-SocketIO | Traduz Socket.IO para gRPC e roteia para os microsserviços |
+| Microsserviços | Python 3.12 + gRPC + Protocol Buffers | Contrato tipado por `.proto`, serialização binária e streaming nativo sobre HTTP/2 |
+| Concorrência | `threading` + `Lock` | Permite demonstrar exclusão mútua explícita (o ponto central do trabalho) |
+| Persistência | PostgreSQL + SQLAlchemy | Sobrevive a reinício; cada serviço dono das suas tabelas |
+| Infraestrutura | Docker + Docker Compose | Sobe banco, auth-service, auction-service e gateway juntos |
+
 ## Arquitetura
 
 ```
