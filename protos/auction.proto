@@ -19,10 +19,10 @@ service AuctionService {
   rpc PlaceBid (BidRequest) returns (BidResponse);
   rpc GetStatus (StatusRequest) returns (StatusResponse);
   rpc GetHistory (HistoryRequest) returns (HistoryResponse);
-
-  // Stream de notificacoes em tempo real
-  rpc SubscribeUpdates (SubscriptionRequest) returns (stream AuctionUpdate);
 }
+
+// Nota: o streaming de notificacoes (SubscribeUpdates) ficou no notification-service
+// (protos/notification.proto). O auction-service publica os eventos de lance no Redis.
 
 // ── Criacao de Leilao ─────────────────────────────────────────────────────────
 
@@ -172,21 +172,4 @@ message LanceInfo {
   float valor = 1;
   string transportadora_id = 2;
   int64 timestamp = 3;
-}
-
-// ── Subscription / Stream ─────────────────────────────────────────────────────
-
-message SubscriptionRequest {
-  string transportadora_id = 1;
-  int32 leilao_id = 2;
-}
-
-message AuctionUpdate {
-  float menor_lance = 1;
-  string transportadora_lider = 2;
-  int64 timestamp = 3;
-  bool encerrado = 4;
-  string mensagem = 5;
-  int32 leilao_id = 6;
-  int32 tempo_restante_s = 7;
 }

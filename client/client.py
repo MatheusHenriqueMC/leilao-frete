@@ -23,23 +23,28 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "generated"))
 
 import auction_pb2
 import auction_pb2_grpc
+import notification_pb2
+import notification_pb2_grpc
 
-# Configuracao do auction-service
+# auction-service (lances/status) e notification-service (streaming via Redis)
 SERVER_HOST = os.environ.get("AUCTION_HOST", "localhost")
 SERVER_PORT = os.environ.get("AUCTION_PORT", "50051")
+NOTIFICATION_HOST = os.environ.get("NOTIFICATION_HOST", "localhost")
+NOTIFICATION_PORT = os.environ.get("NOTIFICATION_PORT", "50053")
 
 # Flag global para saber se o leilao foi encerrado
 leilao_encerrado = threading.Event()
 
 
-def ouvir_atualizacoes(stub, transportadora_id, leilao_id):
-    """Thread de background: mantem o stream aberto e imprime notificacoes."""
+def ouvir_atualizacoes(notif_stub, transportadora_id, leilao_id):
+    """Thread de background: mantem o stream aberto e imprime notificacoes.
+    O streaming vem do notification-service (que assina o Redis)."""
     try:
-        request = auction_pb2.SubscriptionRequest(
+        request = notification_pb2.SubscriptionRequest(
             transportadora_id=transportadora_id,
             leilao_id=leilao_id,
         )
-        for update in stub.SubscribeUpdates(request):
+        for update in notif_stub.SubscribeUpdates(request):
             if update.encerrado:
                 print(f"\n  [ENCERRADO] {update.mensagem}")
                 print("  Digite SAIR para encerrar o cliente.")
@@ -125,9 +130,11 @@ def main():
         print("Verifique se o auction-service está rodando.")
         return
 
+    notif_channel = grpc.insecure_channel(f"{NOTIFICATION_HOST}:{NOTIFICATION_PORT}")
+    notif_stub = notification_pb2_grpc.NotificationServiceStub(notif_channel)
     thread_updates = threading.Thread(
         target=ouvir_atualizacoes,
-        args=(stub, transportadora_id, leilao_id),
+        args=(notif_stub, transportadora_id, leilao_id),
         daemon=True,
     )
     thread_updates.start()

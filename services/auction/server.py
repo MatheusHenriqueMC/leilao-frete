@@ -10,7 +10,6 @@ import os
 import logging
 import threading
 import time
-import queue
 from concurrent import futures
 from datetime import datetime, timezone
 
@@ -39,6 +38,7 @@ DATABASE_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql://postgres:postgres@localhost:5432/freight_auction",
 )
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
 
 def _summary_from_state(state: AuctionState) -> auction_pb2.AuctionSummary:
@@ -84,11 +84,11 @@ def _summary_from_db(d: dict) -> auction_pb2.AuctionSummary:
 
 class AuctionServicer(auction_pb2_grpc.AuctionServiceServicer):
 
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, redis_url: str):
         self._db = db
         self._leiloes: dict[int, AuctionState] = {}
         self._leiloes_lock = threading.Lock()
-        self._notifier = Notifier()
+        self._notifier = Notifier(redis_url)
         self._timers: dict[int, threading.Timer] = {}
 
         self._recarregar_leiloes_ativos()
@@ -383,44 +383,6 @@ class AuctionServicer(auction_pb2_grpc.AuctionServiceServicer):
             mensagem="Leilão encontrado."
         )
 
-    # ── Stream de Notificacoes ─────────────────────────────────────────────────
-
-    def SubscribeUpdates(self, request, context):
-        leilao_id = request.leilao_id
-        tid = request.transportadora_id
-
-        state = self._get_state(leilao_id)
-        if not state:
-            context.set_code(grpc.StatusCode.NOT_FOUND)
-            context.set_details("Leilão não encontrado.")
-            return
-
-        state.adicionar_participante(tid)
-        fila = self._notifier.subscribe(leilao_id)
-
-        logger.info("'%s' inscrito no leilão %d.", tid, leilao_id)
-        try:
-            while context.is_active():
-                try:
-                    evento = fila.get(timeout=1.0)
-                    yield auction_pb2.AuctionUpdate(
-                        menor_lance=evento["menor_lance"],
-                        transportadora_lider=evento["transportadora_lider"],
-                        timestamp=evento["timestamp"],
-                        encerrado=evento["encerrado"],
-                        mensagem=evento["mensagem"],
-                        leilao_id=evento["leilao_id"],
-                        tempo_restante_s=evento["tempo_restante_s"],
-                    )
-                    if evento["encerrado"]:
-                        break
-                except queue.Empty:
-                    continue
-        finally:
-            self._notifier.unsubscribe(leilao_id, fila)
-            state.remover_participante(tid)
-            logger.info("'%s' desconectou do leilão %d.", tid, leilao_id)
-
 
 def serve():
     logger.info("Conectando ao banco...")
@@ -429,7 +391,7 @@ def serve():
     logger.info("Banco conectado.")
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=20))
-    auction_pb2_grpc.add_AuctionServiceServicer_to_server(AuctionServicer(db), server)
+    auction_pb2_grpc.add_AuctionServiceServicer_to_server(AuctionServicer(db, REDIS_URL), server)
     server.add_insecure_port(f"[::]:{PORT}")
     server.start()
     logger.info("Auction-service gRPC rodando na porta %d.", PORT)

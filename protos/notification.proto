@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package notification;
+
+// Servico de notificacao: entrega em tempo real (server streaming) os eventos
+// de leilao que o auction-service publica no Redis (pub/sub). Cada inscricao
+// assina o canal "leilao:<id>" do Redis.
+service NotificationService {
+  rpc SubscribeUpdates (SubscriptionRequest) returns (stream AuctionUpdate);
+}
+
+message SubscriptionRequest {
+  string transportadora_id = 1;
+  int32 leilao_id = 2;
+}
+
+message AuctionUpdate {
+  float menor_lance = 1;
+  string transportadora_lider = 2;
+  int64 timestamp = 3;
+  bool encerrado = 4;
+  string mensagem = 5;
+  int32 leilao_id = 6;
+  int32 tempo_restante_s = 7;
+}

@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "generated"))
 
 import auth_pb2, auth_pb2_grpc
 import auction_pb2, auction_pb2_grpc
+import notification_pb2, notification_pb2_grpc
 
 logging.basicConfig(level=logging.INFO,
                     format="[%(asctime)s] GATEWAY %(levelname)s - %(message)s")
@@ -38,6 +39,8 @@ AUTH_HOST    = os.environ.get("AUTH_HOST", "localhost")
 AUTH_PORT    = os.environ.get("AUTH_PORT", "50052")
 AUCTION_HOST = os.environ.get("AUCTION_HOST", "localhost")
 AUCTION_PORT = os.environ.get("AUCTION_PORT", "50051")
+NOTIFICATION_HOST = os.environ.get("NOTIFICATION_HOST", "localhost")
+NOTIFICATION_PORT = os.environ.get("NOTIFICATION_PORT", "50053")
 GATEWAY_PORT = int(os.environ.get("GATEWAY_PORT", "5000"))
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:5173")
 
@@ -55,6 +58,7 @@ socketio = SocketIO(
 
 _auth_stub: auth_pb2_grpc.AuthServiceStub | None = None
 _auction_stub: auction_pb2_grpc.AuctionServiceStub | None = None
+_notification_stub: notification_pb2_grpc.NotificationServiceStub | None = None
 _stub_lock = threading.Lock()
 
 
@@ -77,6 +81,16 @@ def get_auction_stub() -> auction_pb2_grpc.AuctionServiceStub:
             logger.info("gRPC auction conectado em %s:%s", AUCTION_HOST, AUCTION_PORT)
         return _auction_stub
 
+
+def get_notification_stub() -> notification_pb2_grpc.NotificationServiceStub:
+    global _notification_stub
+    with _stub_lock:
+        if _notification_stub is None:
+            ch = grpc.insecure_channel(f"{NOTIFICATION_HOST}:{NOTIFICATION_PORT}")
+            _notification_stub = notification_pb2_grpc.NotificationServiceStub(ch)
+            logger.info("gRPC notification conectado em %s:%s", NOTIFICATION_HOST, NOTIFICATION_PORT)
+        return _notification_stub
+
 # ── Streams por leilao (threads OS reais — sem conflito com gRPC) ─────────────
 
 _streams: dict[int, threading.Thread] = {}
@@ -92,10 +106,10 @@ def _stream_thread(leilao_id: int):
     room = _room(leilao_id)
     while True:
         try:
-            stub = get_auction_stub()
+            stub = get_notification_stub()
             logger.info("Stream ativa para leilão %d.", leilao_id)
             for update in stub.SubscribeUpdates(
-                auction_pb2.SubscriptionRequest(
+                notification_pb2.SubscriptionRequest(
                     transportadora_id="gateway",
                     leilao_id=leilao_id,
                 ),
@@ -434,8 +448,10 @@ def _summary_dict(s) -> dict:
 
 @app.route("/health")
 def health():
-    return {"status": "ok", "auth": f"{AUTH_HOST}:{AUTH_PORT}",
-            "auction": f"{AUCTION_HOST}:{AUCTION_PORT}"}
+    return {"status": "ok",
+            "auth": f"{AUTH_HOST}:{AUTH_PORT}",
+            "auction": f"{AUCTION_HOST}:{AUCTION_PORT}",
+            "notification": f"{NOTIFICATION_HOST}:{NOTIFICATION_PORT}"}
 
 
 if __name__ == "__main__":

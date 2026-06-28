@@ -1,42 +1,32 @@
 """
-Broadcast de atualizacoes de leilao para os inscritos (server streaming).
+Publicacao de eventos de leilao no Redis (pub/sub).
 
-Encapsula o registro de inscritos e o envio de eventos. Hoje usa filas em
-memoria (uma por inscrito). Na missao 4 (Redis pub/sub), a implementacao
-interna sera trocada por Redis sem mudar a interface usada pelo servicer.
+Quando um lance e aceito (ou o leilao encerra), o auction-service publica um
+evento no canal "leilao:<id>" do Redis. O notification-service assina esses
+canais e entrega os eventos aos clientes via server streaming.
+
+Desacoplamento: o auction-service nao conhece quem recebe; so publica. Isso
+permite que a entrega das notificacoes viva em outro processo (microsservico).
 """
 
-import queue
-import threading
+import json
 import logging
-from collections import defaultdict
+
+import redis
 
 logger = logging.getLogger(__name__)
 
 
 class Notifier:
-    def __init__(self):
-        self._subscribers: dict[int, list[queue.Queue]] = defaultdict(list)
-        self._lock = threading.Lock()
+    def __init__(self, redis_url: str):
+        self._redis = redis.from_url(redis_url)
 
-    def subscribe(self, leilao_id: int) -> queue.Queue:
-        """Registra um inscrito no leilao e devolve a fila por onde ele recebe eventos."""
-        fila: queue.Queue = queue.Queue()
-        with self._lock:
-            self._subscribers[leilao_id].append(fila)
-        return fila
-
-    def unsubscribe(self, leilao_id: int, fila: queue.Queue):
-        with self._lock:
-            lista = self._subscribers.get(leilao_id, [])
-            if fila in lista:
-                lista.remove(fila)
+    def canal(self, leilao_id: int) -> str:
+        return f"leilao:{leilao_id}"
 
     def publish(self, leilao_id: int, evento: dict) -> int:
-        """Envia um evento (dict) para todos os inscritos do leilao. Retorna quantos."""
-        with self._lock:
-            filas = list(self._subscribers.get(leilao_id, []))
-        for f in filas:
-            f.put(evento)
-        logger.info("Notificados %d subscriber(s) do leilão %d.", len(filas), leilao_id)
-        return len(filas)
+        """Publica um evento (dict) no canal do leilao. Retorna quantos receptores."""
+        receptores = self._redis.publish(self.canal(leilao_id), json.dumps(evento))
+        logger.info("Evento do leilão %d publicado no Redis (%d receptor(es)).",
+                    leilao_id, receptores)
+        return receptores
