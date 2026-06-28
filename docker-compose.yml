@@ -97,7 +97,7 @@ services:
   gateway:
     build:
       context: .
-      dockerfile: gateway/Dockerfile
+      dockerfile: services/gateway/Dockerfile
     environment:
       AUTH_HOST: auth-service
       AUTH_PORT: "50052"

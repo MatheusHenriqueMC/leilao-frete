@@ -69,20 +69,21 @@ leilao-frete/
 │   │   ├── notifier.py         # publica os eventos de lance no Redis (pub/sub)
 │   │   ├── database.py         # tabelas leiloes e lances
 │   │   └── Dockerfile + requirements.txt
-│   └── notification/           # notification-service (assina o Redis, faz o streaming)
-│       ├── server.py           # NotificationServicer (gRPC, porta 50053)
+│   ├── notification/           # notification-service (assina o Redis, faz o streaming)
+│   │   ├── server.py           # NotificationServicer (gRPC, porta 50053)
+│   │   └── Dockerfile + requirements.txt
+│   └── gateway/                # gateway/BFF (Socket.IO <-> gRPC)
+│       ├── gateway.py          # roteia para os três serviços
 │       └── Dockerfile + requirements.txt
-├── gateway/
-│   ├── gateway.py              # Ponte Socket.IO para gRPC; roteia para os três serviços
-│   └── Dockerfile + requirements.txt
 ├── client/client.py            # Cliente CLI de texto (BID / STATUS / SAIR)
 ├── frontend/src/
 │   ├── hooks/useSocket.ts      # Hook central de comunicação com o gateway
 │   ├── pages/                  # Login, AdminDashboard, AdminPage,
 │   │                           #   TransportadoraDashboard, AuctionPage
 │   └── components/             # StatusPanel, BidHistory, modais, toasts (MUI)
+├── docs/                       # SETUP.md (como rodar) e REDES.md (apresentação)
 ├── docker-compose.yml
-└── SETUP.md                    # Passo a passo para rodar
+└── README.md
 ```
 
 Cada serviço tem seu próprio `Dockerfile` e `requirements.txt`, gerando os stubs gRPC do seu proto no build.
@@ -96,7 +97,7 @@ Cada serviço tem seu próprio `Dockerfile` e `requirements.txt`, gerando os stu
 
 Resumo: `docker-compose up --build` (backend) e, em outro terminal, `cd frontend && npm install && npm run dev` (frontend). Acesse `http://localhost:5173`.
 
-Passo a passo completo, credenciais e solução de problemas em **[SETUP.md](SETUP.md)**.
+Passo a passo completo, credenciais e solução de problemas em **[docs/SETUP.md](docs/SETUP.md)**.
 
 ---
 

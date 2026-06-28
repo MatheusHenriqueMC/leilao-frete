@@ -94,20 +94,20 @@ Se preferir não usar Docker, é preciso ter um PostgreSQL e um Redis rodando, e
 
 ```bash
 # Dependencias (grpcio-tools vem em qualquer requirements de servico)
-pip install -r services/auction/requirements.txt -r services/notification/requirements.txt -r gateway/requirements.txt
+pip install -r services/auction/requirements.txt -r services/notification/requirements.txt -r services/gateway/requirements.txt
 
 # Gera os stubs de cada componente
-mkdir -p services/auth/generated services/auction/generated services/notification/generated gateway/generated
+mkdir -p services/auth/generated services/auction/generated services/notification/generated services/gateway/generated
 python -m grpc_tools.protoc -I protos/ --python_out=services/auth/generated/ --grpc_python_out=services/auth/generated/ protos/auth.proto
 python -m grpc_tools.protoc -I protos/ --python_out=services/auction/generated/ --grpc_python_out=services/auction/generated/ protos/auction.proto
 python -m grpc_tools.protoc -I protos/ --python_out=services/notification/generated/ --grpc_python_out=services/notification/generated/ protos/notification.proto
-python -m grpc_tools.protoc -I protos/ --python_out=gateway/generated/ --grpc_python_out=gateway/generated/ protos/auth.proto protos/auction.proto protos/notification.proto
+python -m grpc_tools.protoc -I protos/ --python_out=services/gateway/generated/ --grpc_python_out=services/gateway/generated/ protos/auth.proto protos/auction.proto protos/notification.proto
 
 # Sobe cada componente (em terminais separados)
 python services/auth/server.py
 python services/auction/server.py
 python services/notification/server.py
-python gateway/gateway.py
+python services/gateway/gateway.py
 ```
 
 Variáveis de ambiente (ver `.env.example`):
