@@ -11,6 +11,7 @@ import LocalShippingIcon from '@mui/icons-material/LocalShipping'
 import GavelIcon from '@mui/icons-material/Gavel'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import { useSocket } from '../hooks/useSocket'
 import CreateAuctionModal  from '../components/CreateAuctionModal'
 import AuctionHistoryModal  from '../components/AuctionHistoryModal'
@@ -121,9 +122,14 @@ export default function AdminDashboard() {
         <Container maxWidth="xl">
           <Toolbar disableGutters sx={{ gap: 2 }}>
             <Logo height={52} />
-            <Chip label="Admin" size="small" color="primary" variant="outlined" />
             <Box flexGrow={1} />
-            <Typography variant="body2" color="text.secondary">{userId}</Typography>
+            <Chip
+              icon={<AdminPanelSettingsIcon />}
+              label={userId}
+              size="small"
+              color="primary"
+              variant="outlined"
+            />
             <Button color="inherit" onClick={() => { sessionStorage.clear(); navigate('/') }}>Sair</Button>
           </Toolbar>
         </Container>
