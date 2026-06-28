@@ -1,0 +1,7 @@
+pytest==8.*
+fakeredis==2.*
+pytest-cov==6.*
+pytest-timeout==2.*
+sqlalchemy==2.0.41
+redis==5.2.1
+pytest-html==4.*
