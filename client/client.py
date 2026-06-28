@@ -1,11 +1,15 @@
 """
-interface de console para transportadoras participarem do leilão:
+Interface de console para transportadoras participarem do leilao (auction-service):
 - BID <valor>  : Enviar um lance
-- STATUS       : Consultar estado atual do leilão
+- STATUS       : Consultar estado atual do leilao
 - SAIR         : Desconectar do servidor
 
-recebe notificações em tempo real de novos lances e do encerramento
-do leilão (anúncio do vencedor) via server streaming.
+Recebe notificacoes em tempo real de novos lances e do encerramento do leilao
+(anuncio do vencedor) via server streaming.
+
+Stubs: gere com
+  python -m grpc_tools.protoc -I protos/ --python_out=client/generated/ \
+    --grpc_python_out=client/generated/ protos/auction.proto
 """
 
 import sys
@@ -14,31 +18,33 @@ import threading
 
 import grpc
 
-# Adiciona o diretório raiz e generated/ ao path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "generated"))
+sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "generated"))
 
-from generated import freight_pb2
-from generated import freight_pb2_grpc
+import auction_pb2
+import auction_pb2_grpc
+import notification_pb2
+import notification_pb2_grpc
 
-# Configuração do servidor
-SERVER_HOST = "localhost"
-SERVER_PORT = 50051
+# auction-service (lances/status) e notification-service (streaming via Redis)
+SERVER_HOST = os.environ.get("AUCTION_HOST", "localhost")
+SERVER_PORT = os.environ.get("AUCTION_PORT", "50051")
+NOTIFICATION_HOST = os.environ.get("NOTIFICATION_HOST", "localhost")
+NOTIFICATION_PORT = os.environ.get("NOTIFICATION_PORT", "50053")
 
-# Flag global para saber se o leilão foi encerrado
+# Flag global para saber se o leilao foi encerrado
 leilao_encerrado = threading.Event()
 
 
-def ouvir_atualizacoes(stub, transportadora_id):
-    """
-    Thread de background que mantém o stream aberto e imprime
-    notificações de novos lances e encerramento em tempo real.
-    """
+def ouvir_atualizacoes(notif_stub, transportadora_id, leilao_id):
+    """Thread de background: mantem o stream aberto e imprime notificacoes.
+    O streaming vem do notification-service (que assina o Redis)."""
     try:
-        request = freight_pb2.SubscriptionRequest(
-            transportadora_id=transportadora_id
+        request = notification_pb2.SubscriptionRequest(
+            transportadora_id=transportadora_id,
+            leilao_id=leilao_id,
         )
-        for update in stub.SubscribeUpdates(request):
+        for update in notif_stub.SubscribeUpdates(request):
             if update.encerrado:
                 print(f"\n  [ENCERRADO] {update.mensagem}")
                 print("  Digite SAIR para encerrar o cliente.")
@@ -55,35 +61,29 @@ def ouvir_atualizacoes(stub, transportadora_id):
             print(f"\n  [ERRO] Stream de atualizações encerrado: {e.details()}")
 
 
-def enviar_lance(stub, valor, transportadora_id):
-    """Envia um lance (BID) para o servidor."""
+def enviar_lance(stub, valor, transportadora_id, leilao_id):
+    """Envia um lance (BID) para o auction-service."""
     if leilao_encerrado.is_set():
         print("  Leilão já foi encerrado. Não é possível dar lances.")
         return
 
     try:
-        request = freight_pb2.BidRequest(
+        request = auction_pb2.BidRequest(
             valor=valor,
             transportadora_id=transportadora_id,
+            leilao_id=leilao_id,
         )
         response = stub.PlaceBid(request)
-
-        if response.aceito:
-            print(f"  {response.mensagem} | Menor lance: R$ {response.menor_lance_atual:.2f}")
-        else:
-            print(f"  {response.mensagem} | Menor lance: R$ {response.menor_lance_atual:.2f}")
+        print(f"  {response.mensagem} | Menor lance: R$ {response.menor_lance_atual:.2f}")
     except grpc.RpcError as e:
         print(f"  [ERRO] Falha ao enviar lance: {e.details()}")
 
 
-def consultar_status(stub):
-    """Consulta o estado atual do leilão (STATUS)."""
+def consultar_status(stub, leilao_id):
+    """Consulta o estado atual do leilao (STATUS)."""
     try:
-        request = freight_pb2.StatusRequest()
-        response = stub.GetStatus(request)
-
+        response = stub.GetStatus(auction_pb2.StatusRequest(leilao_id=leilao_id))
         status_label = "ENCERRADO" if response.encerrado else "EM ANDAMENTO"
-
         print(f"  Estado: {status_label}")
         print(f"  Menor lance: R$ {response.menor_lance:.2f}")
         print(f"  Lider: {response.transportadora_lider}")
@@ -94,25 +94,27 @@ def consultar_status(stub):
 
 
 def main():
-    """Loop principal do cliente."""
-    print("FREIGHT AUCTION — Leilão Reverso de Fretes")
+    print("FREIGHT AUCTION — Leilão Reverso de Fretes (cliente CLI)")
 
-    # Identificação da transportadora
     transportadora_id = input("Digite o ID da sua transportadora: ").strip()
     if not transportadora_id:
         print("ID não pode ser vazio. Encerrando.")
         return
 
-    # Conexão com o servidor
+    try:
+        leilao_id = int(input("Digite o ID do leilão: ").strip())
+    except ValueError:
+        print("ID de leilão inválido. Encerrando.")
+        return
+
     endereco = f"{SERVER_HOST}:{SERVER_PORT}"
-    print(f"\nConectando ao servidor em {endereco}...")
+    print(f"\nConectando ao auction-service em {endereco}...")
 
     try:
         channel = grpc.insecure_channel(endereco)
-        stub = freight_pb2_grpc.FreightAuctionStub(channel)
+        stub = auction_pb2_grpc.AuctionServiceStub(channel)
 
-        # Testa conexão com um STATUS inicial
-        status = stub.GetStatus(freight_pb2.StatusRequest())
+        status = stub.GetStatus(auction_pb2.StatusRequest(leilao_id=leilao_id))
         print("Conectado com sucesso!")
 
         if status.encerrado:
@@ -122,27 +124,26 @@ def main():
             channel.close()
             return
 
-        print(f"  Valor inicial da carga: R$ {status.menor_lance:.2f}\n")
+        print(f"  Menor lance atual: R$ {status.menor_lance:.2f}\n")
     except grpc.RpcError:
         print(f"Não foi possível conectar ao servidor em {endereco}.")
-        print("Verifique se o servidor está rodando.")
+        print("Verifique se o auction-service está rodando.")
         return
 
-    # Inicia thread de notificações em background
+    notif_channel = grpc.insecure_channel(f"{NOTIFICATION_HOST}:{NOTIFICATION_PORT}")
+    notif_stub = notification_pb2_grpc.NotificationServiceStub(notif_channel)
     thread_updates = threading.Thread(
         target=ouvir_atualizacoes,
-        args=(stub, transportadora_id),
+        args=(notif_stub, transportadora_id, leilao_id),
         daemon=True,
     )
     thread_updates.start()
 
-    # Mostra comandos disponíveis
     print("Comandos disponíveis:")
     print("  BID <valor>  — Enviar um lance (ex: BID 5000)")
     print("  STATUS       — Consultar estado do leilão")
     print("  SAIR         — Desconectar\n")
 
-    # Loop de comandos
     while True:
         try:
             entrada = input(">>> ").strip()
@@ -160,17 +161,15 @@ def main():
             if len(partes) < 2:
                 print("  Uso: BID <valor> (ex: BID 5000)")
                 continue
-
             try:
                 valor = float(partes[1])
             except ValueError:
                 print("  Valor inválido. Use um número (ex: BID 5000)")
                 continue
-
-            enviar_lance(stub, valor, transportadora_id)
+            enviar_lance(stub, valor, transportadora_id, leilao_id)
 
         elif comando == "STATUS":
-            consultar_status(stub)
+            consultar_status(stub, leilao_id)
 
         elif comando == "SAIR":
             print("Desconectando...")

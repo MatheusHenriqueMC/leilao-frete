@@ -1,5 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import {
+  AppBar, Toolbar, Container, Box, Stack, Typography, Chip, Button,
+  Card, CardContent, TextField, IconButton, Tooltip,
+} from '@mui/material'
+import LocalShippingIcon from '@mui/icons-material/LocalShipping'
+import GavelIcon from '@mui/icons-material/Gavel'
+import VisibilityIcon from '@mui/icons-material/Visibility'
+import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import { useSocket } from '../hooks/useSocket'
 import AuctionHistoryModal  from '../components/AuctionHistoryModal'
 import AuctionPreviewModal  from '../components/AuctionPreviewModal'
@@ -7,10 +15,6 @@ import Logo           from '../components/Logo'
 import ToastContainer from '../components/ToastContainer'
 import { useLeadershipNotifications } from '../hooks/useLeadershipNotifications'
 import type { AuctionSummary } from '../types'
-
-function brl(v: number) {
-  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-}
 
 function fmtDate(iso: string) {
   if (!iso) return '—'
@@ -28,13 +32,19 @@ function TimerBadge({ segundos }: { segundos: number }) {
     if (s <= 0) return
     const id = setInterval(() => setS(p => Math.max(0, p - 1)), 1000)
     return () => clearInterval(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   if (s <= 0) return null
   const m = Math.floor(s / 60), sec = s % 60
   return (
-    <span className={`text-xs font-mono px-2 py-0.5 rounded-full ${s < 30 ? 'bg-red-50 text-red-600' : 'bg-orange-50 text-orange-600'}`}>
-      ⏱ {m > 0 ? `${m}m ` : ''}{sec}s
-    </span>
+    <Chip
+      size="small"
+      color={s < 30 ? 'error' : 'primary'}
+      variant="outlined"
+      icon={<AccessTimeIcon />}
+      label={`${m > 0 ? `${m}m ` : ''}${sec}s`}
+      sx={{ fontFamily: 'monospace' }}
+    />
   )
 }
 
@@ -49,7 +59,6 @@ export default function TransportadoraDashboard() {
     fetchAuctionDetail, resolveCode, joinAuction,
   } = useSocket()
 
-  // Usa auctionsList (do socket) como seed — disponível antes do estado local
   const { toasts, dismissToast } = useLeadershipNotifications(
     userId,
     lastUpdate,
@@ -79,7 +88,6 @@ export default function TransportadoraDashboard() {
     setAtivos(auctionsList)
   }, [auctionsList])
 
-  // Entra nas rooms dos leilões onde o usuário está liderando para receber notificações no dashboard
   useEffect(() => {
     if (!connected || !userId) return
     auctionsList
@@ -87,14 +95,12 @@ export default function TransportadoraDashboard() {
       .forEach(l => joinAuction(l.id, userId))
   }, [auctionsList, connected, userId, joinAuction])
 
-  // auto-refresh
   useEffect(() => {
     if (!connected) return
     const id = setInterval(() => listAuctions(true), 15000)
     return () => clearInterval(id)
   }, [connected, listAuctions])
 
-  // resolve code result
   useEffect(() => {
     if (!resolveCodeResult) return
     setLoadingCode(false)
@@ -116,127 +122,115 @@ export default function TransportadoraDashboard() {
   if (!userId) return null
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200">
-        <div className="max-w-screen-xl mx-auto px-6 py-3 flex items-center justify-between">
-          <Logo height={60} />
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-500">{userId}</span>
-            <button
-              onClick={() => setShowHistory(true)}
-              className="text-sm text-orange-500 hover:text-orange-700 font-medium"
-            >
-              Meu Histórico
-            </button>
-            <button onClick={() => { sessionStorage.clear(); navigate('/') }}
-              className="text-sm text-gray-400 hover:text-red-500 transition-colors">
-              Sair
-            </button>
-          </div>
-        </div>
-      </header>
 
-      <main className="max-w-screen-xl mx-auto px-6 py-8 space-y-8">
-        {/* Entrar por código */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="font-semibold text-gray-800 mb-1">Entrar por Código</h2>
-          <p className="text-sm text-gray-400 mb-4">Não está achando o leilão que procura? Utilize o código e vá direto para ele.</p>
-          <form onSubmit={handleCode} className="flex gap-2">
-            <input
-              value={code}
-              onChange={e => { setCode(e.target.value.toUpperCase()); setCodeErro('') }}
-              placeholder="ex: F3T8KZ"
-              maxLength={6}
-              className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg font-mono text-lg tracking-widest uppercase focus:outline-none focus:ring-2 focus:ring-orange-400"
-            />
-            <button
-              type="submit"
-              disabled={loadingCode || !code.trim()}
-              className="bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white font-semibold px-5 py-2.5 rounded-lg"
-            >
-              {loadingCode ? '…' : 'Entrar'}
-            </button>
-          </form>
-          {codeErro && (
-            <p className="mt-2 text-sm text-red-600">{codeErro}</p>
-          )}
-        </div>
+      <AppBar position="static" color="inherit" elevation={0} sx={{ borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Container maxWidth="xl">
+          <Toolbar disableGutters sx={{ gap: 2 }}>
+            <Logo height={52} />
+            <Box flexGrow={1} />
+            <Typography variant="body2" color="text.secondary">{userId}</Typography>
+            <Button color="primary" onClick={() => setShowHistory(true)}>Meu histórico</Button>
+            <Button color="inherit" onClick={() => { sessionStorage.clear(); navigate('/') }}>Sair</Button>
+          </Toolbar>
+        </Container>
+      </AppBar>
 
-        {/* Leilões ativos */}
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-gray-800">Leilões Ativos</h2>
-            <button onClick={() => listAuctions(true)} className="text-xs text-orange-500 hover:text-orange-700">
-              Atualizar
-            </button>
-          </div>
+      <Container maxWidth="xl" sx={{ py: 4 }}>
+        <Card sx={{ mb: 4 }}>
+          <CardContent>
+            <Typography fontWeight={600}>Entrar por Código</Typography>
+            <Typography variant="body2" color="text.secondary" mb={2}>
+              Não está achando o leilão que procura? Utilize o código e vá direto para ele.
+            </Typography>
+            <Stack direction="row" spacing={1} component="form" onSubmit={handleCode}>
+              <TextField
+                value={code}
+                onChange={e => { setCode(e.target.value.toUpperCase()); setCodeErro('') }}
+                placeholder="ex: F3T8KZ"
+                inputProps={{ maxLength: 6, style: { fontFamily: 'monospace', letterSpacing: 4, textTransform: 'uppercase' } }}
+                error={!!codeErro}
+                helperText={codeErro}
+                fullWidth size="small"
+              />
+              <Box>
+                <Button type="submit" variant="contained" disabled={loadingCode || !code.trim()} sx={{ height: 40 }}>
+                  {loadingCode ? '...' : 'Entrar'}
+                </Button>
+              </Box>
+            </Stack>
+          </CardContent>
+        </Card>
 
-          {ativos.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
-              <p className="text-gray-400">Nenhum leilão ativo no momento.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {ativos.map(l => (
-                <div key={l.id}
-                  className="bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-md transition-shadow flex flex-col">
+        <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2}>
+          <Typography fontWeight={600}>Leilões Ativos</Typography>
+          <Button size="small" onClick={() => listAuctions(true)}>Atualizar</Button>
+        </Stack>
 
-                  {/* Data e hora */}
-                  <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 bg-gray-50">
-                    <span className="text-xs text-gray-600">{fmtDate(l.created_at)}</span>
-                    <span className="text-xs font-semibold text-gray-700">{fmtTime(l.created_at)}</span>
-                  </div>
+        {ativos.length === 0 ? (
+          <Card>
+            <CardContent sx={{ textAlign: 'center', py: 5 }}>
+              <Typography color="text.secondary">Nenhum leilão ativo no momento.</Typography>
+            </CardContent>
+          </Card>
+        ) : (
+          <Box sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: 'repeat(3, 1fr)', xl: 'repeat(4, 1fr)' },
+            gap: 3,
+          }}>
+            {ativos.map(l => (
+              <Card key={l.id} sx={{ display: 'flex', flexDirection: 'column' }}>
+                <Stack direction="row" alignItems="center" justifyContent="space-between"
+                  sx={{ px: 1.5, py: 1, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
+                  <Typography variant="caption" color="text.secondary">{fmtDate(l.created_at)}</Typography>
+                  <Typography variant="caption" fontWeight={600}>{fmtTime(l.created_at)}</Typography>
+                </Stack>
 
-                  {/* Imagem / thumbnail */}
-                  <div className="bg-white flex items-center justify-center overflow-hidden"
-                    style={{ height: '260px' }}>
-                    {l.thumbnail ? (
-                      <img src={l.thumbnail} alt={l.titulo}
-                        className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="text-center text-gray-300 select-none">
-                        <div className="text-7xl">🚚</div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Título */}
-                  <div className="px-3 py-2 border-t border-gray-100 flex-1 flex items-center justify-center">
-                    <p className="text-sm font-bold text-orange-600 text-center uppercase leading-tight line-clamp-3">
-                      {l.titulo}
-                    </p>
-                  </div>
-
-                  {/* Timer se houver */}
-                  {l.tempo_restante_s > 0 && (
-                    <div className="px-3 pb-1 flex justify-center">
-                      <TimerBadge segundos={l.tempo_restante_s} />
-                    </div>
+                <Box sx={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                  {l.thumbnail ? (
+                    <Box component="img" src={l.thumbnail} alt={l.titulo}
+                      sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <LocalShippingIcon sx={{ fontSize: 64, color: 'grey.300' }} />
                   )}
+                </Box>
 
-                  {/* Botões */}
-                  <div className="border-t border-gray-100 flex justify-center gap-3 px-3 py-2.5">
-                    <button
-                      onClick={() => navigate(`/leilao/${l.id}`)}
-                      title="Entrar no leilão"
-                      className="w-12 h-12 rounded-full bg-green-500 hover:bg-green-600 flex items-center justify-center text-white text-xl transition-colors shadow-sm">
-                      🔨
-                    </button>
-                    <button
-                      onClick={e => { e.stopPropagation(); setPreview(l) }}
-                      title="Ver detalhes"
-                      className="w-12 h-12 rounded-full bg-gray-400 hover:bg-gray-500 flex items-center justify-center text-white text-base transition-colors shadow-sm">
-                      🔍
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </main>
+                <Stack alignItems="center"
+                  sx={{ px: 1.5, py: 1, borderTop: '1px solid', borderColor: 'divider', flexGrow: 1, justifyContent: 'center' }}>
+                  <Typography variant="body2" fontWeight={700} color="primary.dark" textAlign="center"
+                    sx={{ textTransform: 'uppercase', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    {l.titulo}
+                  </Typography>
+                </Stack>
+
+                {l.tempo_restante_s > 0 && (
+                  <Box sx={{ px: 1.5, pb: 1, display: 'flex', justifyContent: 'center' }}>
+                    <TimerBadge segundos={l.tempo_restante_s} />
+                  </Box>
+                )}
+
+                <Stack direction="row" justifyContent="center" spacing={2}
+                  sx={{ borderTop: '1px solid', borderColor: 'divider', px: 1.5, py: 1.5 }}>
+                  <Tooltip title="Entrar no leilão">
+                    <IconButton color="success" onClick={() => navigate(`/leilao/${l.id}`)}
+                      sx={{ bgcolor: 'success.main', color: 'common.white', '&:hover': { bgcolor: 'success.dark' } }}>
+                      <GavelIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Ver detalhes">
+                    <IconButton onClick={e => { e.stopPropagation(); setPreview(l) }}
+                      sx={{ bgcolor: 'grey.400', color: 'common.white', '&:hover': { bgcolor: 'grey.500' } }}>
+                      <VisibilityIcon />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
+              </Card>
+            ))}
+          </Box>
+        )}
+      </Container>
 
       {preview && (
         <AuctionPreviewModal
@@ -255,6 +249,6 @@ export default function TransportadoraDashboard() {
           detail={auctionDetail}
         />
       )}
-    </div>
+    </Box>
   )
 }

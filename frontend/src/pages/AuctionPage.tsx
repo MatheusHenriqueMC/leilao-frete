@@ -1,7 +1,17 @@
 import { useEffect, useState, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import {
+  AppBar, Toolbar, Container, Box, Stack, Typography, Button, IconButton, Paper,
+  Table, TableHead, TableBody, TableRow, TableCell, Divider, InputAdornment, TextField,
+} from '@mui/material'
+import { keyframes } from '@mui/system'
+import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'
+import LocalShippingIcon from '@mui/icons-material/LocalShipping'
+import EmojiEventsIcon from '@mui/icons-material/EmojiEvents'
+import BoltIcon from '@mui/icons-material/Bolt'
 import { useSocket } from '../hooks/useSocket'
-// BidHistory removido — substituído pelo painel unificado abaixo
 import AlertBanner    from '../components/AlertBanner'
 import Logo           from '../components/Logo'
 import ToastContainer from '../components/ToastContainer'
@@ -41,6 +51,17 @@ function calcStep(valor: number): number {
   return 10
 }
 
+const COUNTDOWN_LABELS: Record<number, string> = {
+  3: 'Dou-lhe uma!',
+  2: 'Dou-lhe duas!',
+  1: 'Dou-lhe três!',
+}
+
+const pulse = keyframes`
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+`
+
 // ── Componente ────────────────────────────────────────────────────────────────
 
 export default function AuctionPage() {
@@ -72,7 +93,6 @@ export default function AuctionPage() {
     if (!userId || role !== 'transportadora') navigate('/')
   }, [userId, role, navigate])
 
-  // Join + load
   useEffect(() => {
     if (connected && userId && !joined) {
       joinAuction(leilaoId, userId)
@@ -83,7 +103,6 @@ export default function AuctionPage() {
     }
   }, [connected, userId, joined, leilaoId, joinAuction, requestStatus, requestHistory, fetchAuctionDetail])
 
-  // Countdown local — reset sempre que o servidor atualizar o tempo restante
   useEffect(() => {
     if (!status) return
     if (timerRef.current) clearInterval(timerRef.current)
@@ -99,7 +118,6 @@ export default function AuctionPage() {
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [status?.tempo_restante_s, status?.encerrado])
 
-  // Bid feedback
   useEffect(() => {
     if (!lastBidResponse || lastBidResponse.leilao_id !== leilaoId) return
     setBidFeedback({ msg: lastBidResponse.mensagem, ok: lastBidResponse.aceito })
@@ -109,7 +127,6 @@ export default function AuctionPage() {
 
   const { toasts, dismissToast } = useLeadershipNotifications(userId, lastUpdate, status, undefined)
 
-  // Mostra o countdown de encerramento broadcast pelo admin
   useEffect(() => {
     if (!countdownEvent || countdownEvent.leilao_id !== leilaoId) return
     if (countdownTimerRef.current) clearInterval(countdownTimerRef.current)
@@ -125,7 +142,6 @@ export default function AuctionPage() {
         }
       }, 1000)
     } else {
-      // Cancelado por novo lance
       setEncerrandoCountdown(null)
     }
     return () => { if (countdownTimerRef.current) clearInterval(countdownTimerRef.current) }
@@ -149,25 +165,25 @@ export default function AuctionPage() {
   const imagens: string[] =
     auctionDetail?.leilao?.id === leilaoId ? auctionDetail.imagens : []
 
-  // Vencedor — derivado do status (funciona tanto em tempo real quanto ao navegar para leilão já encerrado)
   const temVencedor = isAuctionClosed && !!status?.transportadora_lider
   const vencedorId  = status?.transportadora_lider ?? ''
   const vencedorValor = status?.menor_lance ?? 0
 
-  // Status badge
   const badge = isAuctionClosed
-    ? { label: 'Encerrado',     cls: 'bg-red-600 text-white' }
+    ? { label: 'Encerrado',    color: 'error.main' as const }
     : (status?.total_lances ?? 0) === 0
-      ? { label: 'Aguardando',  cls: 'bg-orange-500 text-white' }
-      : { label: 'Em andamento', cls: 'bg-green-600 text-white' }
+      ? { label: 'Aguardando',   color: 'primary.main' as const }
+      : { label: 'Em andamento', color: 'success.main' as const }
 
-  // Seleciona um lance para confirmação (não envia ainda)
+  const isLeader = !!userId
+    && status?.transportadora_lider === userId
+    && (status?.total_lances ?? 0) > 0
+
   function handleSelectBid(valor: number) {
     setPendingBid(valor)
     setBidFeedback(null)
   }
 
-  // Confirma e envia o lance
   function handleConfirmBid() {
     if (pendingBid === null || !userId || isAuctionClosed) return
     placeBid(leilaoId, userId, pendingBid)
@@ -180,402 +196,337 @@ export default function AuctionPage() {
     if (!isNaN(v) && v > 0) handleSelectBid(v)
   }
 
+  // ── Sub-render: formulario de lance (presets + custom + confirmacao) ──────
+
+  const presetGrid = (
+    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1, mb: 1.5 }}>
+      {presets.map(v => (
+        <Button
+          key={v}
+          size="small"
+          variant={pendingBid === v ? 'contained' : 'outlined'}
+          color={pendingBid === v ? 'primary' : 'inherit'}
+          onClick={() => handleSelectBid(v)}
+          disabled={!connected}
+          sx={{ fontSize: 12, px: 0.5 }}
+        >
+          {v.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+        </Button>
+      ))}
+    </Box>
+  )
+
+  const customInput = (
+    <Stack direction="row" spacing={1} sx={{ mb: 1.5 }}>
+      <TextField
+        type="number" value={valorCustom} size="small" fullWidth
+        onChange={e => setValorCustom(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && handleCustomBid()}
+        placeholder="0,00" disabled={!connected}
+        InputProps={{ startAdornment: <InputAdornment position="start">R$</InputAdornment> }}
+        inputProps={{ step: '0.01', min: '0.01' }}
+      />
+      <Button variant="contained" onClick={handleCustomBid} disabled={!connected || !valorCustom}>
+        Selecionar
+      </Button>
+    </Stack>
+  )
+
+  const pendingConfirm = pendingBid !== null && (
+    <Paper variant="outlined" sx={{
+      p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.5,
+      bgcolor: 'rgba(249,115,22,0.08)', borderColor: 'rgba(249,115,22,0.3)',
+    }}>
+      <Box>
+        <Typography variant="caption" color="primary.dark" fontWeight={500}>Lance selecionado</Typography>
+        <Typography fontWeight={800} color="primary.dark">{brl(pendingBid!)}</Typography>
+      </Box>
+      <Stack direction="row" spacing={1}>
+        <Button size="small" color="inherit" variant="outlined" onClick={() => setPendingBid(null)}>Cancelar</Button>
+        <Button size="small" variant="contained" onClick={handleConfirmBid} disabled={!connected}>Confirmar lance</Button>
+      </Stack>
+    </Paper>
+  )
+
   // ── Render ────────────────────────────────────────────────────────────────
 
-  // Usuário é o líder atual com pelo menos 1 lance
-  const isLeader = !!userId
-    && status?.transportadora_lider === userId
-    && (status?.total_lances ?? 0) > 0
-
-  const COUNTDOWN_LABELS: Record<number, string> = {
-    3: 'Dou-lhe uma!',
-    2: 'Dou-lhe duas!',
-    1: 'Dou-lhe três!',
-  }
-
   return (
-    <div className="min-h-screen bg-gray-100">
+    <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-      {/* Header — logo centralizada */}
-      <header className="bg-white border-b border-gray-200">
-        <div className="max-w-6xl mx-auto px-4 py-3 grid grid-cols-3 items-center">
-          <button onClick={() => navigate('/transportadora')}
-            className="text-sm text-gray-500 hover:text-orange-500 justify-self-start">
-            ← Voltar
-          </button>
-          <div className="flex justify-center">
-            <Logo height={64} />
-          </div>
-          <button onClick={() => { sessionStorage.clear(); navigate('/') }}
-            className="text-sm text-gray-400 hover:text-red-500 justify-self-end">
-            Sair
-          </button>
-        </div>
-      </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-6">
-        {error && <div className="mb-4"><AlertBanner message={error} type="error" onDismiss={clearError} /></div>}
-        {!connected && <div className="mb-4"><AlertBanner message="Conectando…" type="warning" /></div>}
+      <AppBar position="static" color="inherit" elevation={0} sx={{ borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Container maxWidth="lg">
+          <Toolbar disableGutters sx={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center' }}>
+            <Box sx={{ justifySelf: 'start' }}>
+              <Button size="small" color="inherit" startIcon={<ArrowBackIcon />} onClick={() => navigate('/transportadora')}>
+                Voltar
+              </Button>
+            </Box>
+            <Logo height={56} />
+            <Box sx={{ justifySelf: 'end' }}>
+              <Button size="small" color="inherit" onClick={() => { sessionStorage.clear(); navigate('/') }}>Sair</Button>
+            </Box>
+          </Toolbar>
+        </Container>
+      </AppBar>
 
-        <h2 className="text-xl font-bold text-gray-900 mb-4">{status?.titulo ?? '—'}</h2>
+      <Container maxWidth="lg" sx={{ py: 3 }}>
+        {error && <Box mb={2}><AlertBanner message={error} type="error" onDismiss={clearError} /></Box>}
+        {!connected && <Box mb={2}><AlertBanner message="Conectando..." type="warning" /></Box>}
 
-        {/* ── Grade principal: imagem + painel ────────────────────────────── */}
-        {/*
-          items-stretch (padrão flex) faz os dois filhos terem a mesma altura.
-          A imagem usa h-full para preencher; o painel usa flex-col + h-full.
-          min-h-[360px] garante altura mínima visível quando o painel tem pouco conteúdo.
-        */}
-        <div className="flex flex-col lg:flex-row gap-6 mb-6 lg:min-h-[360px]">
+        <Typography variant="h6" fontWeight={700} mb={2}>{status?.titulo ?? '—'}</Typography>
 
+        {/* Grade principal: carrossel + painel */}
+        <Box sx={{
+          display: 'flex', flexDirection: { xs: 'column', lg: 'row' }, gap: 3, mb: 3,
+          minHeight: { lg: 360 },
+        }}>
           {/* Carrossel */}
-          <div className="lg:w-[55%] lg:flex-shrink-0 min-h-[260px] lg:min-h-0">
-            <div className="h-full bg-white border border-gray-200 rounded-lg overflow-hidden
-                            relative flex items-center justify-center">
+          <Box sx={{ width: { lg: '55%' }, flexShrink: { lg: 0 }, minHeight: { xs: 260, lg: 'auto' } }}>
+            <Paper variant="outlined" sx={{
+              height: '100%', position: 'relative', overflow: 'hidden',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
               {imagens.length > 0 ? (
                 <>
-                  <img src={imagens[imgIndex]} alt=""
-                    className="w-full h-full object-contain" />
+                  <Box component="img" src={imagens[imgIndex]} alt=""
+                    sx={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                   {imagens.length > 1 && (
                     <>
-                      <button
+                      <IconButton
                         onClick={() => setImgIndex(p => (p - 1 + imagens.length) % imagens.length)}
-                        className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/40 hover:bg-black/60
-                                   text-white rounded-full w-8 h-8 flex items-center justify-center">
-                        ‹
-                      </button>
-                      <button
+                        sx={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
+                          bgcolor: 'rgba(0,0,0,0.4)', color: 'white', '&:hover': { bgcolor: 'rgba(0,0,0,0.6)' } }}
+                      >
+                        <ChevronLeftIcon />
+                      </IconButton>
+                      <IconButton
                         onClick={() => setImgIndex(p => (p + 1) % imagens.length)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/40 hover:bg-black/60
-                                   text-white rounded-full w-8 h-8 flex items-center justify-center">
-                        ›
-                      </button>
-                      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+                        sx={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                          bgcolor: 'rgba(0,0,0,0.4)', color: 'white', '&:hover': { bgcolor: 'rgba(0,0,0,0.6)' } }}
+                      >
+                        <ChevronRightIcon />
+                      </IconButton>
+                      <Stack direction="row" spacing={0.5}
+                        sx={{ position: 'absolute', bottom: 8, left: '50%', transform: 'translateX(-50%)' }}>
                         {imagens.map((_, i) => (
-                          <button key={i} onClick={() => setImgIndex(i)}
-                            className={`w-2 h-2 rounded-full transition-colors ${
-                              i === imgIndex ? 'bg-white' : 'bg-white/50'
-                            }`} />
+                          <Box key={i} onClick={() => setImgIndex(i)}
+                            sx={{ width: 8, height: 8, borderRadius: '50%', cursor: 'pointer',
+                              bgcolor: i === imgIndex ? 'white' : 'rgba(255,255,255,0.5)' }} />
                         ))}
-                      </div>
+                      </Stack>
                     </>
                   )}
                 </>
               ) : (
-                <div className="text-center text-gray-300 select-none">
-                  <div className="text-6xl mb-2">🚚</div>
-                  <p className="text-sm">Sem imagens</p>
-                </div>
+                <Stack alignItems="center" sx={{ color: 'grey.300' }}>
+                  <LocalShippingIcon sx={{ fontSize: 64 }} />
+                  <Typography variant="body2">Sem imagens</Typography>
+                </Stack>
               )}
-            </div>
-          </div>
+            </Paper>
+          </Box>
 
           {/* Painel lateral */}
-          <div className="lg:flex-1">
-            <div className="flex flex-col h-full bg-white border border-gray-200 rounded-lg overflow-hidden">
-
-              {/* Badge de status / Timer — ocupa o mesmo espaço */}
-              <div className={`px-4 py-2.5 text-center font-semibold shrink-0 ${badge.cls}`}>
+          <Box sx={{ flex: 1 }}>
+            <Paper variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              {/* Badge / Timer */}
+              <Box sx={{ px: 2, py: 1.25, textAlign: 'center', fontWeight: 600, color: 'white', bgcolor: badge.color, flexShrink: 0 }}>
                 {isAuctionClosed ? (
-                  <span className="text-sm">Encerrado</span>
+                  <Typography variant="body2">Encerrado</Typography>
                 ) : status?.tempo_total_s && status.tempo_total_s > 0 ? (
-                  // Quando há timer ativo, exibe a contagem no lugar do label
-                  <span className={`font-mono text-base tracking-wide ${
-                    tempoRestante < 30 ? 'animate-pulse' : ''
-                  }`}>
+                  <Typography fontFamily="monospace" sx={{ animation: tempoRestante < 30 ? `${pulse} 1s infinite` : undefined }}>
                     {formatCountdown(tempoRestante)}
-                  </span>
+                  </Typography>
                 ) : (
-                  <span className="text-sm">{badge.label}</span>
+                  <Typography variant="body2">{badge.label}</Typography>
                 )}
-              </div>
+              </Box>
 
               {/* Grid de valores */}
-              <div className="grid grid-cols-2 divide-x divide-y divide-gray-100 border-b border-gray-200 shrink-0">
-                <div className="px-4 py-3">
-                  <p className="text-xs text-orange-600 font-medium">Lance inicial</p>
-                  <p className="font-semibold text-gray-800 text-sm mt-0.5">
-                    {status ? brl(status.valor_inicial) : '—'}
-                  </p>
-                </div>
-                <div className="px-4 py-3">
-                  <p className="text-xs text-orange-600 font-medium">Lances</p>
-                  <p className="font-semibold text-gray-800 text-sm mt-0.5">
-                    {status?.total_lances ?? 0}
-                  </p>
-                </div>
-                <div className="px-4 py-3">
-                  <p className="text-xs text-gray-500">Último lance</p>
-                  <p className={`font-bold text-sm mt-0.5 ${
-                    (status?.total_lances ?? 0) > 0 ? 'text-orange-700' : 'text-gray-400'
-                  }`}>
+              <Box sx={{
+                display: 'grid', gridTemplateColumns: '1fr 1fr', flexShrink: 0,
+                borderBottom: '1px solid', borderColor: 'divider',
+                '& > *': { px: 2, py: 1.5, borderColor: 'divider' },
+                '& > *:nth-of-type(1)': { borderRight: '1px solid', borderBottom: '1px solid' },
+                '& > *:nth-of-type(2)': { borderBottom: '1px solid' },
+                '& > *:nth-of-type(3)': { borderRight: '1px solid' },
+              }}>
+                <Box>
+                  <Typography variant="caption" color="primary.dark" fontWeight={500}>Lance inicial</Typography>
+                  <Typography variant="body2" fontWeight={600}>{status ? brl(status.valor_inicial) : '—'}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="primary.dark" fontWeight={500}>Lances</Typography>
+                  <Typography variant="body2" fontWeight={600}>{status?.total_lances ?? 0}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.disabled">Último lance</Typography>
+                  <Typography variant="body2" fontWeight={700}
+                    color={(status?.total_lances ?? 0) > 0 ? 'primary.dark' : 'text.disabled'}>
                     {(status?.total_lances ?? 0) > 0 ? brl(status!.menor_lance) : '—'}
-                  </p>
-                </div>
-                <div className="px-4 py-3">
-                  <p className="text-xs text-gray-500">Líder</p>
-                  <p className="text-sm text-gray-700 mt-0.5 truncate font-medium">
-                    {status?.transportadora_lider || '—'}
-                  </p>
-                </div>
-              </div>
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.disabled">Líder</Typography>
+                  <Typography variant="body2" fontWeight={500} noWrap>{status?.transportadora_lider || '—'}</Typography>
+                </Box>
+              </Box>
 
-              {/* Vencedor — só quando tem lance real */}
+              {/* Vencedor */}
               {isAuctionClosed && (
-                <div className={`px-4 py-3 border-b border-gray-100 shrink-0 text-center ${
-                  temVencedor ? 'bg-orange-50' : 'bg-gray-50'
-                }`}>
+                <Box sx={{ px: 2, py: 1.5, textAlign: 'center', flexShrink: 0,
+                  borderBottom: '1px solid', borderColor: 'divider',
+                  bgcolor: temVencedor ? 'rgba(249,115,22,0.08)' : 'grey.50' }}>
                   {temVencedor ? (
                     <>
-                      <p className="text-xs text-orange-500 mb-0.5">🏆 Vencedor</p>
-                      <p className="font-bold text-orange-800 text-sm">
+                      <Stack direction="row" alignItems="center" justifyContent="center" spacing={0.5}>
+                        <EmojiEventsIcon sx={{ fontSize: 16, color: 'primary.main' }} />
+                        <Typography variant="caption" color="primary.main">Vencedor</Typography>
+                      </Stack>
+                      <Typography fontWeight={700} color="primary.dark">
                         {vencedorId === userId ? 'Você!' : vencedorId}
-                      </p>
-                      <p className="text-orange-700 font-semibold text-sm">{brl(vencedorValor)}</p>
+                      </Typography>
+                      <Typography fontWeight={600} color="primary.dark">{brl(vencedorValor)}</Typography>
                     </>
                   ) : (
-                    <p className="text-xs text-gray-400">Nenhum lance registrado</p>
+                    <Typography variant="caption" color="text.disabled">Nenhum lance registrado</Typography>
                   )}
-                </div>
+                </Box>
               )}
 
-              {/* Área de lance — preenche o espaço disponível */}
-              <div className="flex-1 flex flex-col">
+              {/* Área de lance */}
+              <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                 {isAuctionClosed ? (
-                  <div className="p-4" />
-
+                  <Box sx={{ p: 2 }} />
                 ) : encerrandoCountdown !== null && isLeader ? (
-                  /* ── COUNTDOWN: usuário é o líder — não pode dar lance ── */
-                  <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-                    <div className="mb-3 bg-green-50 border border-green-200 rounded-xl px-4 py-2">
-                      <p className="text-green-700 font-bold text-sm">🏆 Você está com o melhor lance!</p>
-                      <p className="text-green-600 text-xs mt-0.5">Contagem iniciada — aguarde o resultado</p>
-                    </div>
-                    <p className="text-7xl font-black text-orange-500 tabular-nums my-3">
+                  <Stack alignItems="center" justifyContent="center" sx={{ flex: 1, p: 3, textAlign: 'center' }}>
+                    <Paper variant="outlined" sx={{ px: 2, py: 1, mb: 1.5, bgcolor: 'rgba(22,163,74,0.08)', borderColor: 'rgba(22,163,74,0.3)' }}>
+                      <Typography variant="body2" fontWeight={700} color="success.dark">Você está com o melhor lance!</Typography>
+                      <Typography variant="caption" color="success.main">Contagem iniciada, aguarde o resultado</Typography>
+                    </Paper>
+                    <Typography sx={{ fontSize: 72, fontWeight: 900, color: 'primary.main', fontVariantNumeric: 'tabular-nums', my: 1 }}>
                       {encerrandoCountdown}
-                    </p>
-                    <p className="text-base font-bold text-gray-700">
-                      {COUNTDOWN_LABELS[encerrandoCountdown] ?? '…'}
-                    </p>
-                  </div>
-
+                    </Typography>
+                    <Typography fontWeight={700} color="text.secondary">{COUNTDOWN_LABELS[encerrandoCountdown] ?? '...'}</Typography>
+                  </Stack>
                 ) : encerrandoCountdown !== null && !isLeader ? (
-                  /* ── COUNTDOWN: usuário NÃO é o líder — pode dar lance para cancelar ── */
-                  <div className="p-4">
-                    <div className="text-center mb-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
-                      <p className="text-orange-700 font-bold text-sm">⚡ Leilão sendo encerrado!</p>
-                      <p className="text-5xl font-black text-orange-500 tabular-nums my-2">
+                  <Box sx={{ p: 2 }}>
+                    <Paper variant="outlined" sx={{ textAlign: 'center', px: 2, py: 1.5, mb: 1.5, bgcolor: 'rgba(249,115,22,0.08)', borderColor: 'rgba(249,115,22,0.3)' }}>
+                      <Stack direction="row" alignItems="center" justifyContent="center" spacing={0.5}>
+                        <BoltIcon sx={{ fontSize: 18, color: 'primary.dark' }} />
+                        <Typography variant="body2" fontWeight={700} color="primary.dark">Leilão sendo encerrado!</Typography>
+                      </Stack>
+                      <Typography sx={{ fontSize: 40, fontWeight: 900, color: 'primary.main', fontVariantNumeric: 'tabular-nums', my: 0.5 }}>
                         {encerrandoCountdown}
-                      </p>
-                      <p className="text-sm font-bold text-gray-700">
-                        {COUNTDOWN_LABELS[encerrandoCountdown] ?? '…'}
-                      </p>
-                      <p className="text-xs text-orange-500 mt-1 font-medium">
+                      </Typography>
+                      <Typography variant="body2" fontWeight={700} color="text.secondary">{COUNTDOWN_LABELS[encerrandoCountdown] ?? '...'}</Typography>
+                      <Typography variant="caption" color="primary.dark" fontWeight={500}>
                         Dê um lance para cancelar o encerramento!
-                      </p>
-                    </div>
-
-                    {/* Formulário de lance ainda disponível */}
-                    <div className="grid grid-cols-3 gap-1.5 mb-3">
-                      {presets.map(v => (
-                        <button key={v} onClick={() => handleSelectBid(v)} disabled={!connected}
-                          className={`py-2 px-1 text-xs font-semibold rounded transition-colors border disabled:opacity-40
-                                      ${pendingBid === v
-                                        ? 'bg-orange-500 text-white border-orange-500'
-                                        : 'bg-gray-100 hover:bg-orange-100 text-gray-700 border-gray-200 hover:border-orange-300'}`}>
-                          {v.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 mb-3">
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">R$</span>
-                          <input type="number" value={valorCustom}
-                            onChange={e => setValorCustom(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && handleCustomBid()}
-                            placeholder="0,00" step="0.01" min="0.01" disabled={!connected}
-                            className="w-full pl-7 pr-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:bg-gray-100" />
-                        </div>
-                        <button onClick={handleCustomBid} disabled={!connected || !valorCustom}
-                          className="bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white font-semibold px-3 py-1.5 rounded text-sm whitespace-nowrap">
-                          Selecionar
-                        </button>
-                      </div>
-                    </div>
-                    {pendingBid !== null && (
-                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-xs text-orange-600 font-medium">Lance selecionado</p>
-                          <p className="text-base font-black text-orange-700">{brl(pendingBid)}</p>
-                        </div>
-                        <div className="flex gap-2 shrink-0">
-                          <button onClick={() => setPendingBid(null)}
-                            className="text-xs border border-gray-300 text-gray-600 px-3 py-1.5 rounded hover:bg-gray-100">
-                            Cancelar
-                          </button>
-                          <button onClick={handleConfirmBid} disabled={!connected}
-                            className="text-xs bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white font-bold px-4 py-1.5 rounded">
-                            Confirmar lance
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
+                      </Typography>
+                    </Paper>
+                    {presetGrid}
+                    {customInput}
+                    {pendingConfirm}
+                  </Box>
                 ) : (
-                  /* ── NORMAL: sem countdown ── */
-                  <div className="flex flex-col justify-end flex-1 p-4">
-                    <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">
+                  <Stack sx={{ flex: 1, justifyContent: 'flex-end', p: 2 }}>
+                    <Typography variant="caption" fontWeight={600} color="text.secondary"
+                      sx={{ textTransform: 'uppercase', letterSpacing: 1, mb: 1.5 }}>
                       Dê o seu lance
-                    </p>
-                    <div className="grid grid-cols-3 gap-1.5 mb-3">
-                      {presets.map(v => (
-                        <button key={v} onClick={() => handleSelectBid(v)} disabled={!connected}
-                          className={`py-2 px-1 text-xs font-semibold rounded transition-colors border disabled:opacity-40
-                                      ${pendingBid === v
-                                        ? 'bg-orange-500 text-white border-orange-500'
-                                        : 'bg-gray-100 hover:bg-orange-100 text-gray-700 border-gray-200 hover:border-orange-300'}`}>
-                          {v.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 mb-3">
-                      <p className="text-xs text-gray-400 mb-2">
-                        Outro Valor: <span className="text-gray-500">Decremento mín.: {brl(step)}</span>
-                      </p>
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">R$</span>
-                          <input type="number" value={valorCustom}
-                            onChange={e => setValorCustom(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && handleCustomBid()}
-                            placeholder="0,00" step="0.01" min="0.01" disabled={!connected}
-                            className="w-full pl-7 pr-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:bg-gray-100" />
-                        </div>
-                        <button onClick={handleCustomBid} disabled={!connected || !valorCustom}
-                          className="bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white font-semibold px-3 py-1.5 rounded text-sm whitespace-nowrap">
-                          Selecionar
-                        </button>
-                      </div>
-                    </div>
-                    {pendingBid !== null ? (
-                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-xs text-orange-600 font-medium">Lance selecionado</p>
-                          <p className="text-base font-black text-orange-700">{brl(pendingBid)}</p>
-                        </div>
-                        <div className="flex gap-2 shrink-0">
-                          <button onClick={() => setPendingBid(null)}
-                            className="text-xs border border-gray-300 text-gray-600 px-3 py-1.5 rounded hover:bg-gray-100">
-                            Cancelar
-                          </button>
-                          <button onClick={handleConfirmBid} disabled={!connected}
-                            className="text-xs bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white font-bold px-4 py-1.5 rounded">
-                            Confirmar lance
-                          </button>
-                        </div>
-                      </div>
-                    ) : bidFeedback && (
-                      <div className={`px-3 py-2 rounded text-xs font-medium ${
-                        bidFeedback.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-                      }`}>
-                        {bidFeedback.ok ? '✓ ' : '✗ '}{bidFeedback.msg}
-                      </div>
+                    </Typography>
+                    {presetGrid}
+                    <Typography variant="caption" color="text.disabled" mb={1}>
+                      Decremento mínimo: {brl(step)}
+                    </Typography>
+                    {customInput}
+                    {pendingBid !== null ? pendingConfirm : bidFeedback && (
+                      <Paper variant="outlined" sx={{
+                        px: 1.5, py: 1,
+                        bgcolor: bidFeedback.ok ? 'rgba(22,163,74,0.08)' : 'rgba(220,38,38,0.08)',
+                        borderColor: bidFeedback.ok ? 'rgba(22,163,74,0.3)' : 'rgba(220,38,38,0.3)',
+                      }}>
+                        <Typography variant="caption" fontWeight={600}
+                          color={bidFeedback.ok ? 'success.dark' : 'error.main'}>
+                          {bidFeedback.msg}
+                        </Typography>
+                      </Paper>
                     )}
-                  </div>
+                  </Stack>
                 )}
-              </div>
-            </div>
-          </div>
-        </div>
+              </Box>
+            </Paper>
+          </Box>
+        </Box>
 
-        {/* ── Painel unificado: Especificações + Últimos Lances + Descrição ── */}
-        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-
-          {/* ESPECIFICAÇÕES */}
+        {/* Painel unificado: Especificações + Últimos Lances + Descrição */}
+        <Paper variant="outlined">
           {status?.especificacoes && (
             <>
-              <div className="px-6 py-5">
-                <h3 className="font-bold text-gray-800 text-sm uppercase tracking-widest mb-3">
+              <Box sx={{ px: 3, py: 2.5 }}>
+                <Typography fontWeight={700} variant="body2" sx={{ textTransform: 'uppercase', letterSpacing: 1.5, mb: 1.5 }}>
                   Especificações
-                </h3>
-                <p className="text-sm text-gray-600 whitespace-pre-line leading-relaxed">
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-line' }}>
                   {status.especificacoes}
-                </p>
-              </div>
-              <hr className="border-gray-200" />
+                </Typography>
+              </Box>
+              <Divider />
             </>
           )}
 
-          {/* ÚLTIMOS LANCES */}
-          <div className="px-6 py-5">
-            <h3 className="font-bold text-gray-800 text-sm uppercase tracking-widest mb-3">
+          <Box sx={{ px: 3, py: 2.5 }}>
+            <Typography fontWeight={700} variant="body2" sx={{ textTransform: 'uppercase', letterSpacing: 1.5, mb: 1.5 }}>
               Últimos Lances
-            </h3>
+            </Typography>
             {history.length === 0 ? (
-              <p className="text-sm text-gray-400 py-2">Nenhum lance foi dado para este lote.</p>
+              <Typography variant="body2" color="text.disabled" py={1}>
+                Nenhum lance foi dado para este lote.
+              </Typography>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 pr-6 font-semibold text-gray-500 text-xs uppercase">
-                        Nº do lance
-                      </th>
-                      <th className="text-left py-2 pr-6 font-semibold text-gray-500 text-xs uppercase">
-                        Lance
-                      </th>
-                      <th className="text-left py-2 pr-6 font-semibold text-gray-500 text-xs uppercase">
-                        Data
-                      </th>
-                      <th className="text-left py-2 font-semibold text-gray-500 text-xs uppercase">
-                        Arrematante
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
+              <Box sx={{ overflowX: 'auto' }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ color: 'text.disabled', textTransform: 'uppercase', fontSize: 11 }}>Nº do lance</TableCell>
+                      <TableCell sx={{ color: 'text.disabled', textTransform: 'uppercase', fontSize: 11 }}>Lance</TableCell>
+                      <TableCell sx={{ color: 'text.disabled', textTransform: 'uppercase', fontSize: 11 }}>Data</TableCell>
+                      <TableCell sx={{ color: 'text.disabled', textTransform: 'uppercase', fontSize: 11 }}>Arrematante</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {[...history].reverse().map((bid, i) => (
-                      <tr
-                        key={`${bid.timestamp}-${bid.transportadora_id}`}
-                        className="border-b border-gray-100 last:border-0"
-                      >
-                        <td className="py-2.5 pr-6 text-gray-500">{history.length - i}</td>
-                        <td className="py-2.5 pr-6 font-bold text-gray-800">{brl(bid.valor)}</td>
-                        <td className="py-2.5 pr-6 text-gray-500 whitespace-nowrap">
-                          {formatDateTime(bid.timestamp)}
-                        </td>
-                        <td className={`py-2.5 font-medium ${
-                          bid.transportadora_id === userId
-                            ? 'text-orange-600'
-                            : 'text-gray-700'
-                        }`}>
+                      <TableRow key={`${bid.timestamp}-${bid.transportadora_id}`}>
+                        <TableCell sx={{ color: 'text.secondary' }}>{history.length - i}</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>{brl(bid.valor)}</TableCell>
+                        <TableCell sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>{formatDateTime(bid.timestamp)}</TableCell>
+                        <TableCell sx={{ fontWeight: 500, color: bid.transportadora_id === userId ? 'primary.dark' : 'text.primary' }}>
                           {bid.transportadora_id}
                           {bid.transportadora_id === userId && (
-                            <span className="ml-1 text-xs text-orange-400 font-normal">(você)</span>
+                            <Typography component="span" variant="caption" color="primary.light" sx={{ ml: 0.5 }}>(você)</Typography>
                           )}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
-              </div>
+                  </TableBody>
+                </Table>
+              </Box>
             )}
-          </div>
+          </Box>
 
-          {/* DESCRIÇÃO DO LEILÃO */}
           {status?.descricao_carga && (
             <>
-              <hr className="border-gray-200" />
-              <div className="px-6 py-5">
-                <h3 className="font-bold text-gray-800 text-sm uppercase tracking-widest mb-3">
+              <Divider />
+              <Box sx={{ px: 3, py: 2.5 }}>
+                <Typography fontWeight={700} variant="body2" sx={{ textTransform: 'uppercase', letterSpacing: 1.5, mb: 1.5 }}>
                   Descrição do Leilão
-                </h3>
-                <p className="text-sm text-gray-600 leading-relaxed">{status.descricao_carga}</p>
-              </div>
+                </Typography>
+                <Typography variant="body2" color="text.secondary">{status.descricao_carga}</Typography>
+              </Box>
             </>
           )}
-        </div>
-      </main>
-    </div>
+        </Paper>
+      </Container>
+    </Box>
   )
 }

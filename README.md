@@ -1,245 +1,153 @@
 # Plataforma de Negociação de Fretes
 
-Sistema distribuído cliente-servidor para leilão reverso de fretes. Transportadoras competem enviando lances decrescentes para carregar uma carga anunciada pelo servidor. O menor lance vence; em caso de empate, a ordem de chegada define o vencedor.
+Sistema distribuído cliente-servidor para **leilão reverso de fretes**. O servidor anuncia uma carga com um valor inicial e as transportadoras competem enviando **lances decrescentes** para transportá-la. O **menor lance vence** e, em caso de empate, **a ordem de chegada decide**, sem empates possíveis.
 
-> **Status atual:** Entrega 4 — Interface gráfica completa, broadcast automático de lances e sincronização atômica
+> Projeto da disciplina CIN0143 (Introdução aos Sistemas Distribuídos e Redes), CIn/UFPE.
+> O requisito central é demonstrar **controle de concorrência explícito** no servidor.
 
-## Tecnologias Escolhidas
+## Como funciona em 30 segundos
 
-| Componente | Tecnologia | Justificativa |
+- O backend é dividido em **microsserviços gRPC**: o **auth-service** (login e contas), o **auction-service** (leilões, lances, status, histórico) e o **notification-service** (entrega das notificações em tempo real).
+- O **auction-service** mantém o estado de cada leilão em memória, protegido por um `threading.Lock()`. Cada lance chega numa thread separada; o lock serializa os lances: o primeiro a entrar registra, e um lance de valor igual ou maior é rejeitado.
+- Quando um lance é aceito, o auction-service **publica** o evento no **Redis** (pub/sub). O notification-service **assina** o canal e faz **push** aos clientes via server streaming, sem polling.
+- O navegador não fala gRPC, então um **gateway** traduz Socket.IO para gRPC e roteia para o serviço certo.
+
+## Stack utilizada
+
+| Camada | Tecnologia | Por quê |
 |---|---|---|
-| Linguagem | Python 3.12 | Familiaridade da equipe, suporte oficial ao gRPC e stdlib completa para concorrência |
-| Comunicação | gRPC + Protocol Buffers | Contrato tipado via `.proto`, serialização binária eficiente e suporte a server streaming para notificações |
-| Concorrência | `threading` + `Lock` | Integrado ao `ThreadPoolExecutor` do gRPC; permite demonstrar exclusão mútua explícita na seção crítica |
-| Persistência | PostgreSQL + SQLAlchemy | Persistência dos leilões e lances entre reinicializações do servidor |
-| Gateway | Flask + Flask-SocketIO | BFF (Backend for Frontend) que traduz HTTP long-polling ↔ gRPC |
-| Frontend | React + TypeScript + Vite + Tailwind CSS | Interface responsiva e em tempo real para transportadoras e administradores |
-| Infraestrutura | Docker Compose | Orquestração dos serviços: banco, servidor gRPC e gateway |
+| Frontend | React + TypeScript + Vite + MUI | Interface reativa e tipada; MUI dá componentes prontos e consistentes |
+| Comunicação navegador | Socket.IO (HTTP long-polling) | Push do servidor para o browser sem conflitar com as threads C do gRPC |
+| Gateway (BFF) | Flask + Flask-SocketIO | Traduz Socket.IO para gRPC e roteia para os microsserviços |
+| Microsserviços | Python 3.12 + gRPC + Protocol Buffers | Contrato tipado por `.proto`, serialização binária e streaming nativo sobre HTTP/2 |
+| Mensageria | Redis (pub/sub) | Broker que desacopla a publicação de eventos (auction) da entrega (notification) |
+| Concorrência | `threading` + `Lock` | Permite demonstrar exclusão mútua explícita (o ponto central do trabalho) |
+| Persistência | PostgreSQL + SQLAlchemy | Sobrevive a reinício; cada serviço dono das suas tabelas |
+| Infraestrutura | Docker + Docker Compose | Sobe banco, Redis e os serviços juntos |
 
-### Por que essas escolhas?
-
-- **Python vs Java/Go/Node.js:** Java traz boilerplate excessivo para o escopo. Go exigiria aprender uma linguagem nova em paralelo. Node.js (single-threaded) esconderia os problemas de sincronização que o projeto exige demonstrar.
-- **gRPC vs REST vs Socket puro:** O enunciado exige framework (não socket puro). REST não suporta push nativo do servidor — exigiria polling. gRPC com server streaming resolve notificações de forma nativa.
-- **threading vs asyncio:** `asyncio` elimina race conditions por design, removendo a oportunidade de demonstrar sincronização explícita com `Lock`. A API `grpc.aio` também possui inconsistências entre versões.
-- **Flask-SocketIO como gateway:** O React não fala gRPC diretamente — o gateway traduz eventos de HTTP long-polling em chamadas gRPC, isolando o frontend da camada de transporte. WebSocket não é usado para evitar conflito com as threads C do gRPC.
-
-## Estrutura do Projeto
+## Arquitetura
 
 ```
-freight-auction/
+ FRONTEND          GATEWAY (BFF)         MICROSSERVICOS gRPC
+ React+TS+MUI <-->  Flask-SocketIO <-->  auth-service         :50052  --> PostgreSQL :5432
+ :5173      Socket  :5000          gRPC  auction-service      :50051  --> PostgreSQL + publica no Redis :6379
+            .IO                          notification-service :50053  <-- assina o Redis
+                                                ^ gRPC                            |
+                                          client.py (CLI)            Redis (pub/sub) :6379
+```
+
+Fluxo da notificação: auction-service publica o lance no Redis -> notification-service assina e faz o streaming -> gateway reespalha para o navegador.
+
+| Componente | Tecnologia | Papel | Porta |
+|---|---|---|---|
+| Frontend | React + TypeScript + Vite + MUI | Interface em tempo real (transportadora e admin) | 5173 |
+| Gateway (BFF) | Flask + Flask-SocketIO (modo threading) | Traduz Socket.IO para gRPC e roteia para os serviços | 5000 |
+| auth-service | Python 3.12 + gRPC | Login e cadastro de transportadora | 50052 |
+| auction-service | Python 3.12 + gRPC | Leilões, lances, lock de concorrência; publica eventos no Redis | 50051 |
+| notification-service | Python 3.12 + gRPC | Assina o Redis e entrega as notificações via server streaming | 50053 |
+| Redis | Redis (pub/sub) | Broker de mensagens entre auction e notification | 6379 |
+| Persistência | PostgreSQL + SQLAlchemy | Postgres compartilhado; cada serviço dono das suas tabelas | 5432 |
+| Cliente CLI | Python + gRPC | Fala com o auction-service (lances) e o notification-service (stream) | - |
+| Infra | Docker Compose | Sobe banco, Redis e os serviços | - |
+
+## Estrutura do projeto
+
+```
+leilao-frete/
 ├── protos/
-│   └── freight.proto              # Definições Protocol Buffers
-├── server/
-│   ├── auction.py                 # Estado central em memória com Lock
-│   ├── database.py                # Modelos SQLAlchemy e CRUD (PostgreSQL)
-│   └── server.py                  # Servidor gRPC multicliente (porta 50051)
-├── gateway/
-│   └── gateway.py                 # HTTP long-polling gateway (Flask-SocketIO, threading mode)
-├── frontend/
-│   └── src/
-│       ├── hooks/useSocket.ts     # Hook central de comunicação com o gateway
-│       ├── pages/
-│       │   ├── LoginPage.tsx      # Login unificado (admin/transportadora)
-│       │   ├── AdminDashboard.tsx # Painel admin: criar leilões, gerenciar contas
-│       │   ├── AdminPage.tsx      # Gerenciamento de leilão específico
-│       │   ├── TransportadoraDashboard.tsx # Lista de leilões ativos
-│       │   └── AuctionPage.tsx    # Sala do leilão em tempo real
-│       └── components/            # StatusPanel, BidHistory, modais, etc.
-├── generated/                     # Stubs gerados pelo protoc (não editar)
+│   ├── auth.proto              # Contrato do AuthService
+│   ├── auction.proto           # Contrato do AuctionService
+│   └── notification.proto      # Contrato do NotificationService (streaming)
+├── services/
+│   ├── auth/                   # auth-service (login, contas)
+│   │   ├── server.py           # AuthServicer (gRPC, porta 50052)
+│   │   ├── database.py         # tabela transportadoras
+│   │   └── Dockerfile + requirements.txt
+│   ├── auction/                # auction-service (leiloes, lances)
+│   │   ├── server.py           # AuctionServicer (gRPC, porta 50051)
+│   │   ├── state.py            # AuctionState: estado em memória + Lock (seção crítica)
+│   │   ├── notifier.py         # publica os eventos de lance no Redis (pub/sub)
+│   │   ├── database.py         # tabelas leiloes e lances
+│   │   └── Dockerfile + requirements.txt
+│   ├── notification/           # notification-service (assina o Redis, faz o streaming)
+│   │   ├── server.py           # NotificationServicer (gRPC, porta 50053)
+│   │   └── Dockerfile + requirements.txt
+│   └── gateway/                # gateway/BFF (Socket.IO <-> gRPC)
+│       ├── gateway.py          # roteia para os três serviços
+│       └── Dockerfile + requirements.txt
+├── client/client.py            # Cliente CLI de texto (BID / STATUS / SAIR)
+├── frontend/src/
+│   ├── hooks/useSocket.ts      # Hook central de comunicação com o gateway
+│   ├── pages/                  # Login, AdminDashboard, AdminPage,
+│   │                           #   TransportadoraDashboard, AuctionPage
+│   └── components/             # StatusPanel, BidHistory, modais, toasts (MUI)
+├── docs/                       # SETUP.md (como rodar) e REDES.md (apresentação)
 ├── docker-compose.yml
-├── Dockerfile
-├── requirements.txt
 └── README.md
 ```
 
-## Arquivo .proto
+Cada serviço tem seu próprio `Dockerfile` e `requirements.txt`, gerando os stubs gRPC do seu proto no build.
 
-O contrato do serviço está definido em `protos/freight.proto` usando proto3. Ele declara um serviço `FreightAuction` com os seguintes RPCs:
+## Papéis na interface
 
-| RPC | Tipo | Descrição |
-|---|---|---|
-| `Login` | Unário | Autentica admin (credenciais) ou transportadora cadastrada |
-| `CreateAuction` | Unário | Admin cria novo leilão com imagens, especificações e timer opcional |
-| `CreateCarrier` | Unário | Admin cadastra conta de transportadora com usuário e senha |
-| `ListAuctions` | Unário | Lista leilões ativos ou histórico completo |
-| `GetAuctionDetail` | Unário | Detalhe de um leilão específico com histórico de lances |
-| `GetCarrierHistory` | Unário | Leilões em que determinada transportadora participou |
-| `ResolveJoinCode` | Unário | Resolve código de 6 caracteres para ID do leilão |
-| `PlaceBid` | Unário | Transportadora envia lance; servidor valida e responde com resultado |
-| `GetStatus` | Unário | Estado atual de um leilão (menor lance, líder, timer, etc.) |
-| `GetHistory` | Unário | Histórico completo de lances de um leilão |
-| `CloseAuction` | Unário | Admin encerra o leilão manualmente |
-| `SubscribeUpdates` | Server streaming | Transportadora se inscreve e recebe `AuctionUpdate` a cada novo lance |
+- **Transportadora**: vê a carga, o menor lance ao vivo, o timer, o histórico e o formulário de lance; recebe um toast sonoro e visual ao perder a liderança.
+- **Admin**: cria leilões e contas de transportadora, vê o histórico, monitora a sala e encerra o leilão com o countdown "Dou-lhe uma, duas, três".
 
-Os stubs Python são gerados com:
+## Como rodar
 
-```bash
-python -m grpc_tools.protoc -I protos/ --python_out=generated/ --grpc_python_out=generated/ protos/freight.proto
-```
+Resumo: `docker-compose up --build` (backend) e, em outro terminal, `cd frontend && npm install && npm run dev` (frontend). Acesse `http://localhost:5173`.
 
-## Interface Gráfica
+Passo a passo completo, credenciais e solução de problemas em **[docs/SETUP.md](docs/SETUP.md)**.
 
-A interface React oferece painéis distintos para cada papel:
+---
 
-### Painel da Transportadora (`AuctionPage`)
+## Detalhamento
 
-Exibe em tempo real:
-- **Dados da carga anunciada** — título, descrição, especificações e imagens em carrossel
-- **Valor atual do menor lance** — atualizado automaticamente a cada novo lance recebido
-- **Timer de encerramento** — contagem regressiva local sincronizada com o servidor
-- **Histórico de lances** — tabela com Nº, valor, data/hora e arrematante (lances próprios destacados)
-- **Formulário de lance** — botões de valores pré-calculados + campo livre, com etapa de confirmação antes do envio para evitar cliques acidentais
-- **Notificação sonora e visual de perda de liderança** — ao receber um `auction_update` com novo líder diferente do usuário, um toast laranja desliza no canto superior direito com som de 3 bipes, exibindo o nome do leilão, a transportadora que assumiu e o valor do lance
+### A sincronização (o ponto central do projeto)
 
-### Painel do Administrador (`AdminDashboard` + `AdminPage`)
+Vive no auction-service. Em `services/auction/state.py`, o método `registrar_lance()` faz validação e registro **dentro do mesmo lock**:
 
-- **Dashboard** com cards dos leilões ativos (thumbnail, data/hora, código de acesso)
-- **Criar leilão** — modal com: título, descrição, especificações, lance inicial, timer opcional e upload de imagens (comprimidas automaticamente no browser)
-- **Criar conta de transportadora** — modal com usuário e senha
-- **Histórico de leilões** — modal com lista completa; ao selecionar, exibe dados do leilão e do vencedor
-- **Gerenciar leilão ativo** — acesso direto à sala para monitorar lances e encerrar com countdown "Dou-lhe uma, duas, três"
+1. Adquire o `Lock` do leilão (só uma thread por vez).
+2. Lê o teto atual (menor lance, ou o valor inicial se ainda não houve lance).
+3. Valida `valor < teto`, estritamente menor. Caso contrário, **rejeita**.
+4. Captura o `timestamp` **dentro** do lock, refletindo a ordem real de processamento.
+5. Registra o lance, atualiza o líder e libera o lock.
+6. A persistência no banco ocorre **fora** do lock, mantendo a seção crítica curta.
 
-## Broadcast Automático de Lances
+Dois lances iguais simultâneos: o primeiro a pegar o lock vence; o segundo encontra o teto já atualizado e é rejeitado por não ser estritamente menor. **Empate é impossível.** Separar a autenticação em outro serviço não toca nesse caminho: todos os lances continuam passando por um único `Lock` no auction-service.
 
-O gateway mantém **uma thread gRPC por leilão ativo**. Quando um lance é aceito:
+### Caminho de um lance (ponta a ponta)
 
-1. O servidor gRPC notifica todos os subscribers via `SubscribeUpdates` (server streaming)
-2. A thread do gateway recebe o `AuctionUpdate` e chama `socketio.emit("auction_update", data, to=room)`
-3. Todos os clientes na room do leilão recebem a atualização **sem polling manual**
-4. O frontend atualiza o painel de status, o histórico de lances e dispara a animação de novo lance
+1. Transportadora clica em um valor no frontend, que emite `bid` via Socket.IO.
+2. O gateway recebe e chama `PlaceBid` por gRPC no **auction-service**.
+3. O auction-service registra o lance (sob lock) e **publica** o evento no Redis, no canal `leilao:<id>`.
+4. O **notification-service** está assinando esse canal; recebe o evento e o entrega pelo `SubscribeUpdates` (server streaming).
+5. O gateway mantém **uma thread de stream por leilão** contra o notification-service; ao receber o `AuctionUpdate`, faz `emit` para a room `leilao_<id>`.
+6. Só as abas daquele leilão recebem a atualização; o frontend atualiza status, histórico e dispara o toast.
 
-O canal de broadcast é implementado no gateway com rooms isoladas por leilão (`leilao_{id}`), garantindo que transportadoras de leilões diferentes não recebam mensagens cruzadas.
+### Estado: memória x banco
 
-## Sincronização Atômica de Lances
+Leilões ativos vivem em memória no auction-service (fonte da verdade rápida para a concorrência); o banco guarda tudo para persistência e histórico. No startup, o serviço recarrega os leilões ativos do banco. `ListAuctions(apenas_ativos=true)` lê da memória; `apenas_ativos=false` lê do banco.
 
-O estado central é protegido por `threading.Lock()` no `AuctionState` (`server/auction.py`). O fluxo de dois lances simultâneos com o mesmo valor é:
+### Contratos gRPC
 
-1. Transportadora A e Transportadora B enviam `BID 500` ao mesmo tempo
-2. Ambas as chamadas chegam em threads separadas do `ThreadPoolExecutor`
-3. A primeira thread a adquirir o `Lock` entra na seção crítica
-4. Dentro do lock, ela captura o timestamp, valida que `500 < teto_atual`, registra o lance e atualiza `menor_lance`
-5. O lock é liberado
-6. A segunda thread adquire o lock, mas agora o teto é `500` — como `500` não é estritamente menor, o lance é **rejeitado**
-7. Resultado: o primeiro a adquirir o lock venceu — a serialização é determinística e não existe empate
+- **AuthService** (`protos/auth.proto`): `Login`, `CreateCarrier`.
+- **AuctionService** (`protos/auction.proto`): RPCs unários `CreateAuction`, `CloseAuction`, `ListAuctions`, `GetAuctionDetail`, `GetCarrierHistory`, `ResolveJoinCode`, `PlaceBid`, `GetStatus`, `GetHistory`.
+- **NotificationService** (`protos/notification.proto`): RPC de **server streaming** `SubscribeUpdates`, que envia um `AuctionUpdate` a cada novo lance ou encerramento (alimentado pelo Redis).
 
-O timestamp é capturado **dentro** do lock (não antes), garantindo que ele reflete exatamente a ordem real de processamento.
+O gateway gera os stubs dos três protos (é cliente de todos); cada serviço gera só o seu.
 
-## Como Rodar
+### Decisões de design (e o porquê)
 
-### Pré-requisitos
-
-- Docker e Docker Compose
-- Node.js 18+ (apenas para o frontend)
-
-### Backend (Docker)
-
-```bash
-docker-compose up --build
-```
-
-Sobe automaticamente:
-- **PostgreSQL** na porta `5432`
-- **Servidor gRPC** na porta `50051`
-- **Gateway Flask-SocketIO** na porta `5000`
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Acesse em `http://localhost:5173`.
-
-### Credenciais padrão
-
-| Papel | Usuário | Senha |
-|---|---|---|
-| Administrador | `admin` | `admin123` |
-| Transportadora | cadastrado pelo admin | definido pelo admin |
-
-## Simulando Disputa Agressiva de Lances Simultâneos
-
-Para simular múltiplas transportadoras competindo em tempo real:
-
-### 1. Suba o backend
-
-```bash
-docker-compose up --build
-```
-
-### 2. Abra múltiplos painéis de transportadora
-
-Abra **abas separadas** no browser em `http://localhost:5173`. Cada aba tem sua própria sessão independente (`sessionStorage`), permitindo logar com usuários diferentes simultaneamente:
-
-| Aba | Usuário | Papel |
-|---|---|---|
-| Aba 1 | `translog_sp` | Transportadora |
-| Aba 2 | `translog_rj` | Transportadora |
-| Aba 3 | `translog_mg` | Transportadora |
-| Aba 4 | `admin` | Administrador |
-
-### 3. Crie um leilão com timer curto
-
-Na aba do admin:
-1. Clique em **Criar Leilão**
-2. Preencha título, especificações e lance inicial (ex: R$ 10.000)
-3. Defina tempo curto em **minutos** (ex: `5` = 5 minutos) para pressionar as transportadoras
-4. Adicione uma foto de capa
-5. Copie o **código de acesso** gerado e compartilhe com as transportadoras
-
-### 4. Transportadoras entram no leilão
-
-Cada aba de transportadora:
-1. Insere o código ou clica no card do leilão na lista de ativos
-2. Entra na sala do leilão
-
-### 5. Disparando lances concorrentes
-
-Para simular disputa agressiva, clique em botões de lance em abas diferentes **quase simultaneamente**. O servidor serializa os lances via `threading.Lock()`:
-
-- O primeiro lance a adquirir o lock é aceito
-- Lances de valor igual ou maior são rejeitados imediatamente
-- Todas as abas recebem o `auction_update` automaticamente, sem refresh
-
-**Comportamento esperado:**
-
-```
-Aba 1 (translog_sp): clica em "R$ 9.500" → ✓ Lance aceito
-Aba 2 (translog_rj): clica em "R$ 9.500" ao mesmo tempo → ✗ Lance deve ser menor que 9500
-Aba 3 (translog_mg): clica em "R$ 9.000" → ✓ Lance aceito — assume liderança
-Abas 1 e 2: recebem notificação automática com novo menor lance de translog_mg
-```
-
-### 6. Encerramento com countdown
-
-Na aba do admin, dentro do leilão:
-1. Clique em **Encerrar Leilão**
-2. O sistema exibe o countdown "Dou-lhe uma! → Dou-lhe duas! → Dou-lhe três!"
-3. Ao zerar, todas as transportadoras recebem o banner de encerramento com o vencedor
-
-### Logs do servidor
-
-```
-[2026-06-27 10:00:00] INFO - Leilão 1 'RECIFE → SP, TRANSPORTE DE BANANAS' criado (código F3T8KZ).
-[2026-06-27 10:00:05] INFO - Lance recebido: R$ 9500.00 da transportadora 'translog_sp'
-[2026-06-27 10:00:05] INFO - Lance aceito! Novo menor lance: R$ 9500.00
-[2026-06-27 10:00:05] INFO - Notificados 3 subscriber(s) do leilão 1.
-[2026-06-27 10:00:06] INFO - Lance recebido: R$ 9500.00 da transportadora 'translog_rj'
-[2026-06-27 10:00:06] INFO - Lance rejeitado: Lance deve ser menor que 9500.00.
-[2026-06-27 10:00:08] INFO - Lance recebido: R$ 9000.00 da transportadora 'translog_mg'
-[2026-06-27 10:00:08] INFO - Lance aceito! Novo menor lance: R$ 9000.00
-[2026-06-27 10:00:08] INFO - Notificados 3 subscriber(s) do leilão 1.
-```
+- **Microsserviços com o núcleo de sincronização intacto:** auth e auction são serviços gRPC independentes, mas todo o lance continua passando por um único `Lock` no auction-service, preservando a garantia de "ordem de chegada decide o vencedor". Não há acoplamento de dados entre os serviços (lances guardam `transportadora_id` como string), então o auction-service não precisa chamar o auth no caminho crítico.
+- **`threading` + `Lock` em vez de `asyncio`:** escolha deliberada. `asyncio` evitaria race conditions por design e removeria a oportunidade de demonstrar exclusão mútua explícita, que é o objetivo do projeto.
+- **Gateway com long-polling em vez de WebSocket:** o gRPC usa extensões C com suas próprias threads; o `eventlet`/WebSocket do Socket.IO conflita com isso. O long-polling tem latência abaixo de 1s para poucos usuários, suficiente aqui.
+- **Cliente CLI separado:** cumpre o enunciado ao pé da letra (`BID <valor>`, `STATUS`), falando gRPC direto com o auction-service, sem passar pelo gateway.
+- **Persistência fora do lock:** o `INSERT` no Postgres é lento; mantê-lo fora da seção crítica evita travar os outros lances.
 
 ## Equipe
 
-- Ágata
-- Daniel Ramos
-- Felipe Leite
-- Matheus Henrique
-- Matheus Stepple
+Equipe 14 (tema da Equipe 09): Ágata · Daniel Ramos · Felipe Leite · Matheus Henrique · Matheus Stepple
 
 ## Licença
 

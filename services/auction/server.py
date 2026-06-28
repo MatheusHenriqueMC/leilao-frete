@@ -1,5 +1,8 @@
 """
-Servidor gRPC — Leilão Reverso de Fretes (multi-leilão)
+auction-service: servidor gRPC do leilao reverso (multi-leilao).
+
+Detem o nucleo de sincronizacao (AuctionState + Lock), a gestao de leiloes,
+os lances, status, historico e o streaming de notificacoes.
 """
 
 import sys
@@ -7,8 +10,6 @@ import os
 import logging
 import threading
 import time
-import queue
-from collections import defaultdict
 from concurrent import futures
 from datetime import datetime, timezone
 
@@ -17,32 +18,32 @@ import grpc
 
 load_dotenv()
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "generated"))
+sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "generated"))
 
-from generated import freight_pb2
-from generated import freight_pb2_grpc
-from server.auction import AuctionState
-from server.database import Database
+import auction_pb2
+import auction_pb2_grpc
+from state import AuctionState
+from database import Database
+from notifier import Notifier
 
 logging.basicConfig(
     level=logging.INFO,
-    format="[%(asctime)s] %(levelname)s - %(message)s",
+    format="[%(asctime)s] AUCTION %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
-PORT = 50051
+PORT = int(os.environ.get("AUCTION_PORT", "50051"))
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql://postgres:postgres@localhost:5432/freight_auction",
 )
-ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
 
-def _summary_from_state(state: AuctionState) -> freight_pb2.AuctionSummary:
+def _summary_from_state(state: AuctionState) -> auction_pb2.AuctionSummary:
     s = state.obter_status()
-    return freight_pb2.AuctionSummary(
+    return auction_pb2.AuctionSummary(
         id=state.leilao_id,
         titulo=state.titulo,
         descricao=state.descricao_carga,
@@ -60,9 +61,9 @@ def _summary_from_state(state: AuctionState) -> freight_pb2.AuctionSummary:
     )
 
 
-def _summary_from_db(d: dict) -> freight_pb2.AuctionSummary:
+def _summary_from_db(d: dict) -> auction_pb2.AuctionSummary:
     imagens = d.get("imagens", [])
-    return freight_pb2.AuctionSummary(
+    return auction_pb2.AuctionSummary(
         id=d["id"],
         titulo=d["titulo"],
         descricao=d["descricao_carga"],
@@ -81,23 +82,18 @@ def _summary_from_db(d: dict) -> freight_pb2.AuctionSummary:
     )
 
 
-class FreightAuctionServicer(freight_pb2_grpc.FreightAuctionServicer):
+class AuctionServicer(auction_pb2_grpc.AuctionServiceServicer):
 
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, redis_url: str):
         self._db = db
         self._leiloes: dict[int, AuctionState] = {}
         self._leiloes_lock = threading.Lock()
-
-        # Subscribers: leilao_id → list[Queue]
-        self._subscribers: dict[int, list[queue.Queue]] = defaultdict(list)
-        self._subscribers_lock = threading.Lock()
-
-        # Timers: leilao_id → threading.Timer
+        self._notifier = Notifier(redis_url)
         self._timers: dict[int, threading.Timer] = {}
 
         self._recarregar_leiloes_ativos()
 
-    # ── Startup: recarrega leilões ativos do banco ─────────────────────────────
+    # ── Startup: recarrega leiloes ativos do banco ─────────────────────────────
 
     def _recarregar_leiloes_ativos(self):
         ativos = self._db.listar_leiloes(apenas_ativos=True)
@@ -127,20 +123,16 @@ class FreightAuctionServicer(freight_pb2_grpc.FreightAuctionServicer):
 
     def _notificar(self, leilao_id: int, menor_lance: float, lider: str,
                    encerrado: bool, mensagem: str, tempo_restante_s: int = 0):
-        update = freight_pb2.AuctionUpdate(
-            menor_lance=menor_lance,
-            transportadora_lider=lider,
-            timestamp=int(time.time() * 1000),
-            encerrado=encerrado,
-            mensagem=mensagem,
-            leilao_id=leilao_id,
-            tempo_restante_s=tempo_restante_s,
-        )
-        with self._subscribers_lock:
-            filas = list(self._subscribers.get(leilao_id, []))
-        for f in filas:
-            f.put(update)
-        logger.info("Notificados %d subscriber(s) do leilão %d.", len(filas), leilao_id)
+        evento = {
+            "menor_lance": menor_lance,
+            "transportadora_lider": lider,
+            "timestamp": int(time.time() * 1000),
+            "encerrado": encerrado,
+            "mensagem": mensagem,
+            "leilao_id": leilao_id,
+            "tempo_restante_s": tempo_restante_s,
+        }
+        self._notifier.publish(leilao_id, evento)
 
     def _encerrar_por_timer(self, leilao_id: int):
         state = self._get_state(leilao_id)
@@ -157,47 +149,14 @@ class FreightAuctionServicer(freight_pb2_grpc.FreightAuctionServicer):
         self._notificar(leilao_id, resultado["valor_final"], resultado["vencedor_id"],
                         True, msg, 0)
 
-    # ── Autenticação ───────────────────────────────────────────────────────────
-
-    def Login(self, request, _context):
-        username = request.username.strip()
-        password = request.password.strip()
-
-        if not username:
-            return freight_pb2.LoginResponse(sucesso=False, role="",
-                                              mensagem="Nome não pode ser vazio.")
-
-        # Verifica admin
-        if username == ADMIN_USERNAME:
-            if password == ADMIN_PASSWORD:
-                return freight_pb2.LoginResponse(sucesso=True, role="admin",
-                                                  mensagem="Login de administrador realizado.")
-            return freight_pb2.LoginResponse(sucesso=False, role="",
-                                              mensagem="Senha de administrador incorreta.")
-
-        # Verifica transportadora cadastrada
-        if self._db.validar_transportadora(username, password):
-            return freight_pb2.LoginResponse(sucesso=True, role="transportadora",
-                                              mensagem=f"Bem-vindo, {username}!")
-
-        return freight_pb2.LoginResponse(sucesso=False, role="",
-                                          mensagem="Usuário ou senha incorretos.")
-
-    def CreateCarrier(self, request, _context):
-        sucesso, mensagem = self._db.criar_transportadora(
-            username=request.username.strip(),
-            password=request.password,
-        )
-        return freight_pb2.CreateCarrierResponse(sucesso=sucesso, mensagem=mensagem)
-
-    # ── Criação de Leilão ─────────────────────────────────────────────────────
+    # ── Criacao de Leilao ──────────────────────────────────────────────────────
 
     def CreateAuction(self, request, _context):  # noqa: ARG002
         titulo = request.titulo.strip()
         if not titulo:
-            return freight_pb2.CreateAuctionResponse(sucesso=False, mensagem="Título obrigatório.")
+            return auction_pb2.CreateAuctionResponse(sucesso=False, mensagem="Título obrigatório.")
         if request.valor_inicial <= 0:
-            return freight_pb2.CreateAuctionResponse(sucesso=False, mensagem="Valor inicial inválido.")
+            return auction_pb2.CreateAuctionResponse(sucesso=False, mensagem="Valor inicial inválido.")
 
         try:
             leilao_id, join_code = self._db.criar_leilao(
@@ -210,7 +169,7 @@ class FreightAuctionServicer(freight_pb2_grpc.FreightAuctionServicer):
             )
         except Exception as e:
             logger.error("Erro ao criar leilão no banco: %s", e)
-            return freight_pb2.CreateAuctionResponse(sucesso=False, mensagem="Erro interno.")
+            return auction_pb2.CreateAuctionResponse(sucesso=False, mensagem="Erro interno.")
 
         imagens = list(request.imagens)
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -237,7 +196,7 @@ class FreightAuctionServicer(freight_pb2_grpc.FreightAuctionServicer):
             logger.info("Timer de %ds iniciado para leilão %d.", request.tempo_segundos, leilao_id)
 
         logger.info("Leilão %d '%s' criado (código %s).", leilao_id, titulo, join_code)
-        return freight_pb2.CreateAuctionResponse(
+        return auction_pb2.CreateAuctionResponse(
             sucesso=True,
             leilao_id=leilao_id,
             join_code=join_code,
@@ -249,11 +208,10 @@ class FreightAuctionServicer(freight_pb2_grpc.FreightAuctionServicer):
     def CloseAuction(self, request, context):
         state = self._get_state(request.leilao_id)
         if not state:
-            return freight_pb2.CloseResponse(sucesso=False, mensagem="Leilão não encontrado.")
+            return auction_pb2.CloseResponse(sucesso=False, mensagem="Leilão não encontrado.")
         if state.encerrado:
-            return freight_pb2.CloseResponse(sucesso=False, mensagem="Leilão já encerrado.")
+            return auction_pb2.CloseResponse(sucesso=False, mensagem="Leilão já encerrado.")
 
-        # Cancela timer pendente se houver
         t = self._timers.pop(request.leilao_id, None)
         if t:
             t.cancel()
@@ -268,7 +226,7 @@ class FreightAuctionServicer(freight_pb2_grpc.FreightAuctionServicer):
         self._notificar(request.leilao_id, resultado["valor_final"],
                         resultado["vencedor_id"], True, msg, 0)
 
-        return freight_pb2.CloseResponse(
+        return auction_pb2.CloseResponse(
             sucesso=True,
             mensagem=msg,
             vencedor_id=resultado["vencedor_id"],
@@ -281,8 +239,8 @@ class FreightAuctionServicer(freight_pb2_grpc.FreightAuctionServicer):
     def PlaceBid(self, request, context):
         state = self._get_state(request.leilao_id)
         if not state:
-            return freight_pb2.BidResponse(aceito=False, mensagem="Leilão não encontrado.",
-                                            menor_lance_atual=0)
+            return auction_pb2.BidResponse(aceito=False, mensagem="Leilão não encontrado.",
+                                           menor_lance_atual=0)
 
         aceito, mensagem, menor_lance = state.registrar_lance(request.valor, request.transportadora_id)
 
@@ -293,7 +251,7 @@ class FreightAuctionServicer(freight_pb2_grpc.FreightAuctionServicer):
                 state.tempo_restante_s(),
             )
 
-        return freight_pb2.BidResponse(aceito=aceito, menor_lance_atual=menor_lance, mensagem=mensagem)
+        return auction_pb2.BidResponse(aceito=aceito, menor_lance_atual=menor_lance, mensagem=mensagem)
 
     # ── Status ─────────────────────────────────────────────────────────────────
 
@@ -302,10 +260,10 @@ class FreightAuctionServicer(freight_pb2_grpc.FreightAuctionServicer):
         if not state:
             context.set_code(grpc.StatusCode.NOT_FOUND)
             context.set_details("Leilão não encontrado.")
-            return freight_pb2.StatusResponse()
+            return auction_pb2.StatusResponse()
 
         s = state.obter_status()
-        return freight_pb2.StatusResponse(
+        return auction_pb2.StatusResponse(
             leilao_id=state.leilao_id,
             titulo=state.titulo,
             descricao_carga=state.descricao_carga,
@@ -321,16 +279,16 @@ class FreightAuctionServicer(freight_pb2_grpc.FreightAuctionServicer):
             join_code=state.join_code,
         )
 
-    # ── Histórico de Lances ────────────────────────────────────────────────────
+    # ── Historico de Lances ────────────────────────────────────────────────────
 
     def GetHistory(self, request, context):
         state = self._get_state(request.leilao_id)
         if not state:
-            return freight_pb2.HistoryResponse()
+            return auction_pb2.HistoryResponse()
 
         historico = state.obter_historico()
-        return freight_pb2.HistoryResponse(lances=[
-            freight_pb2.LanceInfo(
+        return auction_pb2.HistoryResponse(lances=[
+            auction_pb2.LanceInfo(
                 valor=l["valor"],
                 transportadora_id=l["transportadora_id"],
                 timestamp=l["timestamp_ms"],
@@ -338,25 +296,24 @@ class FreightAuctionServicer(freight_pb2_grpc.FreightAuctionServicer):
             for l in historico
         ])
 
-    # ── Listagem de Leilões ────────────────────────────────────────────────────
+    # ── Listagem de Leiloes ────────────────────────────────────────────────────
 
     def ListAuctions(self, request, context):
         if request.apenas_ativos:
             with self._leiloes_lock:
                 leiloes_mem = list(self._leiloes.values())
-            return freight_pb2.ListAuctionsResponse(
+            return auction_pb2.ListAuctionsResponse(
                 leiloes=[_summary_from_state(s) for s in leiloes_mem]
             )
         else:
             todos = self._db.listar_leiloes(apenas_ativos=False)
-            return freight_pb2.ListAuctionsResponse(
+            return auction_pb2.ListAuctionsResponse(
                 leiloes=[_summary_from_db(d) for d in todos]
             )
 
-    # ── Detalhe de Leilão ──────────────────────────────────────────────────────
+    # ── Detalhe de Leilao ──────────────────────────────────────────────────────
 
     def GetAuctionDetail(self, request, context):
-        # Imagens sempre vêm do banco
         db_info = self._db.obter_leilao(request.leilao_id)
         imagens = db_info.get("imagens", []) if db_info else []
 
@@ -364,7 +321,7 @@ class FreightAuctionServicer(freight_pb2_grpc.FreightAuctionServicer):
         if state:
             summary = _summary_from_state(state)
             lances = [
-                freight_pb2.LanceInfo(
+                auction_pb2.LanceInfo(
                     valor=l["valor"],
                     transportadora_id=l["transportadora_id"],
                     timestamp=l["timestamp_ms"],
@@ -374,10 +331,10 @@ class FreightAuctionServicer(freight_pb2_grpc.FreightAuctionServicer):
         else:
             if not db_info:
                 context.set_code(grpc.StatusCode.NOT_FOUND)
-                return freight_pb2.AuctionDetailResponse()
+                return auction_pb2.AuctionDetailResponse()
             summary = _summary_from_db(db_info)
             lances = [
-                freight_pb2.LanceInfo(
+                auction_pb2.LanceInfo(
                     valor=l["valor"],
                     transportadora_id=l["transportadora_id"],
                     timestamp=l["timestamp_ms"],
@@ -385,13 +342,13 @@ class FreightAuctionServicer(freight_pb2_grpc.FreightAuctionServicer):
                 for l in self._db.obter_lances(request.leilao_id)
             ]
 
-        return freight_pb2.AuctionDetailResponse(leilao=summary, lances=lances, imagens=imagens)
+        return auction_pb2.AuctionDetailResponse(leilao=summary, lances=lances, imagens=imagens)
 
-    # ── Histórico da Transportadora ────────────────────────────────────────────
+    # ── Historico da Transportadora ────────────────────────────────────────────
 
     def GetCarrierHistory(self, request, context):
         leiloes = self._db.historico_transportadora(request.transportadora_id)
-        return freight_pb2.CarrierHistoryResponse(
+        return auction_pb2.CarrierHistoryResponse(
             leiloes=[_summary_from_db(d) for d in leiloes]
         )
 
@@ -400,69 +357,31 @@ class FreightAuctionServicer(freight_pb2_grpc.FreightAuctionServicer):
     def ResolveJoinCode(self, request, context):
         code = request.join_code.strip().upper()
 
-        # Busca em memória primeiro
         with self._leiloes_lock:
             for state in self._leiloes.values():
                 if state.join_code == code:
                     if state.encerrado:
-                        return freight_pb2.ResolveJoinCodeResponse(
+                        return auction_pb2.ResolveJoinCodeResponse(
                             encontrado=False, mensagem="Leilão encerrado."
                         )
-                    return freight_pb2.ResolveJoinCodeResponse(
+                    return auction_pb2.ResolveJoinCodeResponse(
                         encontrado=True, leilao_id=state.leilao_id, titulo=state.titulo,
                         mensagem="Leilão encontrado."
                     )
 
-        # Fallback no banco
         d = self._db.obter_leilao_por_code(code)
         if not d:
-            return freight_pb2.ResolveJoinCodeResponse(
+            return auction_pb2.ResolveJoinCodeResponse(
                 encontrado=False, mensagem="Código inválido."
             )
         if d["encerrado"]:
-            return freight_pb2.ResolveJoinCodeResponse(
+            return auction_pb2.ResolveJoinCodeResponse(
                 encontrado=False, mensagem="Leilão encerrado."
             )
-        return freight_pb2.ResolveJoinCodeResponse(
+        return auction_pb2.ResolveJoinCodeResponse(
             encontrado=True, leilao_id=d["id"], titulo=d["titulo"],
             mensagem="Leilão encontrado."
         )
-
-    # ── Stream de Notificações ─────────────────────────────────────────────────
-
-    def SubscribeUpdates(self, request, context):
-        leilao_id = request.leilao_id
-        tid = request.transportadora_id
-
-        state = self._get_state(leilao_id)
-        if not state:
-            context.set_code(grpc.StatusCode.NOT_FOUND)
-            context.set_details("Leilão não encontrado.")
-            return
-
-        state.adicionar_participante(tid)
-        fila: queue.Queue = queue.Queue()
-
-        with self._subscribers_lock:
-            self._subscribers[leilao_id].append(fila)
-
-        logger.info("'%s' inscrito no leilão %d.", tid, leilao_id)
-        try:
-            while context.is_active():
-                try:
-                    update = fila.get(timeout=1.0)
-                    yield update
-                    if update.encerrado:
-                        break
-                except queue.Empty:
-                    continue
-        finally:
-            with self._subscribers_lock:
-                lista = self._subscribers.get(leilao_id, [])
-                if fila in lista:
-                    lista.remove(fila)
-            state.remover_participante(tid)
-            logger.info("'%s' desconectou do leilão %d.", tid, leilao_id)
 
 
 def serve():
@@ -472,16 +391,15 @@ def serve():
     logger.info("Banco conectado.")
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=20))
-    servicer = FreightAuctionServicer(db)
-    freight_pb2_grpc.add_FreightAuctionServicer_to_server(servicer, server)
+    auction_pb2_grpc.add_AuctionServiceServicer_to_server(AuctionServicer(db, REDIS_URL), server)
     server.add_insecure_port(f"[::]:{PORT}")
     server.start()
-    logger.info("Servidor gRPC rodando na porta %d.", PORT)
+    logger.info("Auction-service gRPC rodando na porta %d.", PORT)
 
     try:
         server.wait_for_termination()
     except KeyboardInterrupt:
-        logger.info("Encerrando servidor...")
+        logger.info("Encerrando auction-service...")
         server.stop(grace=5)
 
 

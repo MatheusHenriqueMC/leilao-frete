@@ -1,5 +1,5 @@
 """
-Módulo de persistência com PostgreSQL + SQLAlchemy.
+Persistencia do auction-service: leiloes e lances (tabelas leiloes e lances).
 """
 
 import json
@@ -13,16 +13,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
 Base = declarative_base()
-
-
-class Transportadora(Base):
-    """Conta de transportadora cadastrada pelo admin."""
-    __tablename__ = "transportadoras"
-
-    id         = Column(Integer, primary_key=True, autoincrement=True)
-    username   = Column(String, unique=True, nullable=False)
-    password   = Column(String, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class Leilao(Base):
@@ -69,14 +59,14 @@ class Database:
     # ── Join Code ──────────────────────────────────────────────────────────────
 
     def _gerar_join_code_unico(self, session) -> str:
-        """Gera um código de 6 chars hex maiúsculos garantidamente único."""
+        """Gera um codigo de 6 chars hex maiusculos garantidamente unico."""
         while True:
             code = secrets.token_hex(3).upper()
             existe = session.query(Leilao).filter_by(join_code=code).first()
             if not existe:
                 return code
 
-    # ── Criação ────────────────────────────────────────────────────────────────
+    # ── Criacao ────────────────────────────────────────────────────────────────
 
     def criar_leilao(
         self,
@@ -87,7 +77,7 @@ class Database:
         tempo_segundos: int = 0,
         imagens: list[str] | None = None,
     ) -> tuple[int, str]:
-        """Cria um leilão e retorna (leilao_id, join_code)."""
+        """Cria um leilao e retorna (leilao_id, join_code)."""
         with self.SessionLocal() as session:
             code = self._gerar_join_code_unico(session)
             leilao = Leilao(
@@ -102,24 +92,6 @@ class Database:
             session.add(leilao)
             session.commit()
             return leilao.id, code
-
-    # ── Transportadoras ────────────────────────────────────────────────────────
-
-    def criar_transportadora(self, username: str, password: str) -> tuple[bool, str]:
-        """Cria conta de transportadora. Retorna (sucesso, mensagem)."""
-        with self.SessionLocal() as session:
-            existe = session.query(Transportadora).filter_by(username=username).first()
-            if existe:
-                return False, f"Usuário '{username}' já existe."
-            session.add(Transportadora(username=username, password=password))
-            session.commit()
-            return True, f"Transportadora '{username}' criada com sucesso."
-
-    def validar_transportadora(self, username: str, password: str) -> bool:
-        """Verifica se username+password batem com uma transportadora cadastrada."""
-        with self.SessionLocal() as session:
-            t = session.query(Transportadora).filter_by(username=username).first()
-            return t is not None and t.password == password
 
     # ── Lances ─────────────────────────────────────────────────────────────────
 
@@ -185,7 +157,7 @@ class Database:
             ]
 
     def historico_transportadora(self, transportadora_id: str) -> list[dict]:
-        """Leilões em que a transportadora participou (via lances)."""
+        """Leiloes em que a transportadora participou (via lances)."""
         with self.SessionLocal() as session:
             lances = (
                 session.query(Lance)

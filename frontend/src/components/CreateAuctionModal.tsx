@@ -1,4 +1,11 @@
 import { useState, useRef, type FormEvent, useEffect } from 'react'
+import {
+  Dialog, DialogTitle, DialogContent, DialogActions,
+  IconButton, TextField, Button, Box, Stack, Typography, Alert,
+} from '@mui/material'
+import CloseIcon from '@mui/icons-material/Close'
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import type { CreateAuctionResult } from '../types'
 
 interface Props {
@@ -84,138 +91,147 @@ export default function CreateAuctionModal({ onClose, onCreate, result, onClearR
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100 shrink-0">
-          <h2 className="font-bold text-gray-900 text-lg">Novo Leilão</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
-        </div>
+    <Dialog open onClose={onClose} maxWidth="sm" fullWidth
+      PaperProps={{ sx: { maxHeight: '90vh' } }}>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        Novo Leilão
+        <IconButton onClick={onClose} size="small"><CloseIcon /></IconButton>
+      </DialogTitle>
 
-        {result?.sucesso ? (
-          <div className="p-6 text-center">
-            <div className="text-4xl mb-3">🎉</div>
-            <p className="font-semibold text-gray-800 mb-1">Leilão criado!</p>
-            <p className="text-sm text-gray-500 mb-6">{result.mensagem}</p>
-            <p className="text-xs text-gray-400 mb-2 uppercase tracking-wide">Código de acesso</p>
-            <div className="inline-flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-xl px-6 py-4 mb-6">
-              <span className="text-3xl font-black text-orange-700 tracking-widest">{result.join_code}</span>
-              <button onClick={handleCopiar}
-                className="text-xs text-orange-500 hover:text-orange-700 border border-orange-300 rounded px-2 py-1">
-                {copiado ? 'Copiado!' : 'Copiar'}
-              </button>
-            </div>
-            <p className="text-sm text-gray-400">Compartilhe com as transportadoras.</p>
-            <button onClick={onClose}
-              className="mt-6 w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-2.5 rounded-lg">
-              Fechar
-            </button>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Título *</label>
-              <input type="text" value={titulo} onChange={e => setTitulo(e.target.value)}
-                placeholder="ex: Carga SP → Recife, 20t"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                required />
-            </div>
+      {result?.sucesso ? (
+        <DialogContent sx={{ textAlign: 'center' }}>
+          <CheckCircleIcon color="success" sx={{ fontSize: 48, mb: 1 }} />
+          <Typography fontWeight={600} mb={0.5}>Leilão criado!</Typography>
+          <Typography variant="body2" color="text.secondary" mb={3}>{result.mensagem}</Typography>
+          <Typography variant="caption" color="text.disabled" sx={{ textTransform: 'uppercase' }}>
+            Código de acesso
+          </Typography>
+          <Stack direction="row" alignItems="center" justifyContent="center" spacing={2}
+            sx={{
+              bgcolor: 'rgba(249,115,22,0.08)', border: '1px solid', borderColor: 'rgba(249,115,22,0.3)',
+              borderRadius: 2, px: 3, py: 2, my: 2, width: 'fit-content', mx: 'auto',
+            }}>
+            <Typography variant="h4" fontWeight={800} color="primary.dark" letterSpacing={4}>
+              {result.join_code}
+            </Typography>
+            <Button size="small" variant="outlined" onClick={handleCopiar}>
+              {copiado ? 'Copiado!' : 'Copiar'}
+            </Button>
+          </Stack>
+          <Typography variant="body2" color="text.secondary">
+            Compartilhe com as transportadoras.
+          </Typography>
+          <Button onClick={onClose} variant="contained" fullWidth sx={{ mt: 3 }}>Fechar</Button>
+        </DialogContent>
+      ) : (
+        <form onSubmit={handleSubmit}>
+          <DialogContent>
+            <Stack spacing={2}>
+              <TextField
+                label="Título" value={titulo} onChange={e => setTitulo(e.target.value)}
+                placeholder="ex: Carga SP para Recife, 20t" required fullWidth size="small" autoFocus
+              />
+              <TextField
+                label="Descrição" value={descricao} onChange={e => setDescricao(e.target.value)}
+                placeholder="Descrição geral do leilão" fullWidth size="small" multiline rows={2}
+              />
+              <TextField
+                label="Especificações da carga" value={especificacoes}
+                onChange={e => setEspecificacoes(e.target.value)}
+                placeholder="Peso, dimensões, tipo de produto, restrições..."
+                fullWidth size="small" multiline rows={3}
+              />
+              <Stack direction="row" spacing={2}>
+                <TextField
+                  label="Lance inicial (R$)" type="number" value={valorInicial}
+                  onChange={e => setValorInicial(e.target.value)}
+                  placeholder="10000.00" required fullWidth size="small"
+                  inputProps={{ step: '0.01', min: '0.01' }}
+                />
+                <TextField
+                  label="Tempo (min)" type="number" value={tempoMinutos}
+                  onChange={e => setTempoMinutos(e.target.value)}
+                  placeholder="opcional" fullWidth size="small"
+                  inputProps={{ min: '0' }}
+                />
+              </Stack>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
-              <textarea value={descricao} onChange={e => setDescricao(e.target.value)}
-                rows={2} placeholder="Descrição geral do leilão"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-400" />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Especificações da Carga</label>
-              <textarea value={especificacoes} onChange={e => setEspecificacoes(e.target.value)}
-                rows={3} placeholder="Peso, dimensões, tipo de produto, restrições…"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-400" />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Lance Inicial (R$) *</label>
-                <input type="number" value={valorInicial} onChange={e => setValorInicial(e.target.value)}
-                  placeholder="10000.00" step="0.01" min="0.01"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                  required />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tempo (min) <span className="text-gray-400 font-normal">opcional</span>
-                </label>
-                <input type="number" value={tempoMinutos} onChange={e => setTempoMinutos(e.target.value)}
-                  placeholder="ex: 30 (= 30 min)" min="0"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
-              </div>
-            </div>
-
-            {/* Upload de imagens — capa obrigatória */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Foto de Capa{' '}
-                <span className="text-red-500">*</span>
-                <span className="text-gray-400 font-normal"> (1ª foto será a capa · máx. 6)</span>
-              </label>
-              {imagens.length === 0 && (
-                <p className="text-xs text-red-500 mb-2">
-                  ⚠ Adicione pelo menos uma foto de capa para continuar.
-                </p>
-              )}
-              <div className="flex flex-wrap gap-2 mb-2">
-                {imagens.map((src, i) => (
-                  <div key={i}
-                    className={`relative w-20 h-20 rounded-lg overflow-hidden border group ${
-                      i === 0 ? 'border-orange-400 ring-2 ring-orange-300' : 'border-gray-200'
-                    }`}>
-                    {i === 0 && (
-                      <span className="absolute top-0 left-0 bg-orange-500 text-white text-[9px] px-1 leading-4 z-10 rounded-br">
-                        CAPA
-                      </span>
-                    )}
-                    <img src={src} alt="" className="w-full h-full object-cover" />
-                    <button type="button" onClick={() => removeImg(i)}
-                      className="absolute inset-0 bg-black/50 text-white text-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      ×
-                    </button>
-                  </div>
-                ))}
-                {imagens.length < 6 && (
-                  <button type="button" onClick={() => fileRef.current?.click()}
-                    disabled={loadingImg}
-                    className={`w-20 h-20 rounded-lg border-2 border-dashed flex flex-col items-center justify-center text-xs gap-1 transition-colors disabled:opacity-50 ${
-                      imagens.length === 0
-                        ? 'border-red-300 hover:border-orange-400 text-red-400 hover:text-orange-500'
-                        : 'border-gray-300 hover:border-orange-400 text-gray-400 hover:text-orange-500'
-                    }`}>
-                    {loadingImg ? '…' : <>📷<span>{imagens.length === 0 ? 'Capa' : 'Adicionar'}</span></>}
-                  </button>
+              <Box>
+                <Typography variant="body2" fontWeight={500} gutterBottom>
+                  Foto de capa <Box component="span" color="error.main">*</Box>
+                  <Typography component="span" variant="caption" color="text.disabled">
+                    {' '}(1ª foto será a capa, máx. 6)
+                  </Typography>
+                </Typography>
+                {imagens.length === 0 && (
+                  <Typography variant="caption" color="error.main" display="block" mb={1}>
+                    Adicione pelo menos uma foto de capa para continuar.
+                  </Typography>
                 )}
-              </div>
-              <input ref={fileRef} type="file" accept="image/*" multiple className="hidden"
-                onChange={handleFiles} />
-            </div>
+                <Stack direction="row" flexWrap="wrap" gap={1}>
+                  {imagens.map((src, i) => (
+                    <Box key={i} sx={{
+                      position: 'relative', width: 80, height: 80, borderRadius: 1.5, overflow: 'hidden',
+                      border: '2px solid', borderColor: i === 0 ? 'primary.main' : 'grey.200',
+                      '&:hover .overlay': { opacity: 1 },
+                    }}>
+                      {i === 0 && (
+                        <Box sx={{
+                          position: 'absolute', top: 0, left: 0, zIndex: 1, bgcolor: 'primary.main',
+                          color: 'white', fontSize: 9, px: 0.5, borderBottomRightRadius: 4,
+                        }}>
+                          CAPA
+                        </Box>
+                      )}
+                      <Box component="img" src={src} alt=""
+                        sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <Box className="overlay" onClick={() => removeImg(i)}
+                        sx={{
+                          position: 'absolute', inset: 0, bgcolor: 'rgba(0,0,0,0.5)', color: 'white',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          opacity: 0, transition: 'opacity 0.2s', cursor: 'pointer',
+                        }}>
+                        <CloseIcon />
+                      </Box>
+                    </Box>
+                  ))}
+                  {imagens.length < 6 && (
+                    <Button
+                      onClick={() => fileRef.current?.click()}
+                      disabled={loadingImg}
+                      sx={{
+                        width: 80, height: 80, minWidth: 0, flexDirection: 'column', gap: 0.5,
+                        border: '2px dashed', borderColor: imagens.length === 0 ? 'error.light' : 'grey.300',
+                        color: imagens.length === 0 ? 'error.light' : 'text.disabled',
+                      }}>
+                      {loadingImg ? '...' : (
+                        <>
+                          <PhotoCameraIcon fontSize="small" />
+                          <Typography variant="caption">{imagens.length === 0 ? 'Capa' : 'Adicionar'}</Typography>
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </Stack>
+                <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={handleFiles} />
+              </Box>
 
-            {result && !result.sucesso && (
-              <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{result.mensagem}</p>
-            )}
+              {result && !result.sucesso && <Alert severity="error">{result.mensagem}</Alert>}
+            </Stack>
+          </DialogContent>
 
-            <div className="flex gap-3 pt-1">
-              <button type="button" onClick={onClose}
-                className="flex-1 border border-gray-300 text-gray-600 font-medium py-2.5 rounded-lg hover:bg-gray-50">
-                Cancelar
-              </button>
-              <button type="submit" disabled={loading || imagens.length === 0}
-                title={imagens.length === 0 ? 'Adicione uma foto de capa antes de criar' : ''}
-                className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg">
-                {loading ? 'Criando…' : 'Criar Leilão'}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button onClick={onClose} color="inherit">Cancelar</Button>
+            <Button
+              type="submit" variant="contained"
+              disabled={loading || imagens.length === 0}
+              title={imagens.length === 0 ? 'Adicione uma foto de capa antes de criar' : ''}
+            >
+              {loading ? 'Criando...' : 'Criar leilão'}
+            </Button>
+          </DialogActions>
+        </form>
+      )}
+    </Dialog>
   )
 }

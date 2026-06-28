@@ -1,5 +1,5 @@
 services:
-  # Banco de dados PostgreSQL
+  # Banco de dados PostgreSQL (compartilhado; cada servico e dono das suas tabelas)
   db:
     image: postgres:16-alpine
     environment:
@@ -16,18 +16,55 @@ services:
       timeout: 5s
       retries: 5
 
-  # Servidor gRPC
-  grpc-server:
-    build: .
-    command: python -m server.server
+  # Redis: broker de mensagens (pub/sub) entre auction-service e notification-service
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # auth-service: login e cadastro de transportadora (dono da tabela transportadoras)
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth/Dockerfile
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/freight_auction
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: admin123
+      AUTH_PORT: "50052"
+    ports:
+      - "50052:50052"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('localhost',50052)); s.close()\""]
+      interval: 5s
+      timeout: 4s
+      retries: 10
+      start_period: 10s
+
+  # auction-service: leiloes, lances (sincronizacao via Lock), status, historico.
+  # Publica os eventos de lance no Redis (pub/sub).
+  auction-service:
+    build:
+      context: .
+      dockerfile: services/auction/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/freight_auction
+      REDIS_URL: redis://redis:6379/0
+      AUCTION_PORT: "50051"
     ports:
       - "50051:50051"
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('localhost',50051)); s.close()\""]
@@ -36,19 +73,48 @@ services:
       retries: 10
       start_period: 10s
 
-  # WebSocket Gateway
-  gateway:
-    build: .
-    command: python -m gateway.gateway
+  # notification-service: assina os canais do Redis e entrega via server streaming
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/notification/Dockerfile
     environment:
-      GRPC_HOST: grpc-server
-      GRPC_PORT: "50051"
+      REDIS_URL: redis://redis:6379/0
+      NOTIFICATION_PORT: "50053"
+    ports:
+      - "50053:50053"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('localhost',50053)); s.close()\""]
+      interval: 5s
+      timeout: 4s
+      retries: 10
+      start_period: 10s
+
+  # gateway (BFF): traduz Socket.IO para gRPC; roteia para auth, auction e notification
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    environment:
+      AUTH_HOST: auth-service
+      AUTH_PORT: "50052"
+      AUCTION_HOST: auction-service
+      AUCTION_PORT: "50051"
+      NOTIFICATION_HOST: notification-service
+      NOTIFICATION_PORT: "50053"
       GATEWAY_PORT: "5000"
       CORS_ORIGINS: "http://localhost:5173,http://localhost:3000"
     ports:
       - "5000:5000"
     depends_on:
-      grpc-server:
+      auth-service:
+        condition: service_healthy
+      auction-service:
+        condition: service_healthy
+      notification-service:
         condition: service_healthy
 
 volumes:
