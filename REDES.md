@@ -22,11 +22,11 @@ A frase que vale a nota é a última: **sincronização e ordenação total de e
 | Usar framework (não socket puro) | RPC, contrato tipado, serialização binária | `protos/auth.proto` e `protos/auction.proto` + gRPC sobre HTTP/2 |
 | `BID <valor>` valida menor lance | Validação no servidor, estado compartilhado | `services/auction/state.py::registrar_lance()` |
 | `STATUS` | Operação request-response (RPC unário) | `GetStatus` em `services/auction/server.py` |
-| Notificar todos a cada lance menor | Comunicação push, modelo publish/subscribe | `SubscribeUpdates` (server streaming) + `services/auction/notifier.py` |
+| Notificar todos a cada lance menor | Push, message broker (publish/subscribe) | auction-service publica no Redis (`notifier.py`); notification-service assina e faz o streaming |
 | Ordem de chegada define vencedor, sem empate | Exclusão mútua, seção crítica, ordenação total | `threading.Lock()` em `AuctionState` (`services/auction/state.py`) |
 | Múltiplos clientes simultâneos | Concorrência, threads | `ThreadPoolExecutor(max_workers=20)` no gRPC |
 | Servidor persistente | Persistência / tolerância a reinício | `services/auth/database.py` e `services/auction/database.py` (PostgreSQL) |
-| Sistema em serviços independentes | Decomposição em microsserviços, comunicação serviço-a-serviço | gateway -> auth-service e gateway -> auction-service (gRPC) |
+| Sistema em serviços independentes | Decomposição em microsserviços, comunicação serviço-a-serviço e via broker | gateway -> auth/auction/notification (gRPC); auction -> notification (Redis pub/sub) |
 
 ---
 
@@ -83,19 +83,19 @@ with self._lock:
 
 **Exigência:** "o servidor deve notificar todos os participantes sempre que um lance menor for registrado".
 
-Este é um requisito de **comunicação iniciada pelo servidor** (push). Com REST puro exigiria polling; com gRPC usamos **server streaming**, que é push nativo.
+Push (comunicação iniciada pelo servidor). Em vez de polling, usamos um **message broker (Redis) no padrão publish/subscribe** ligando dois microsserviços, e **server streaming** do gRPC na ponta final até o navegador.
 
-**Como funciona (modelo publish/subscribe simples):**
+**O fluxo (3 etapas, em processos diferentes):**
 
-1. Cada cliente que quer receber atualizações abre o stream `SubscribeUpdates`. O `Notifier` (`services/auction/notifier.py`) cria uma `queue.Queue` para esse subscriber, indexada por leilão.
-2. Quando um lance é aceito, o servidor publica um evento via `Notifier.publish()`, que o coloca **na fila de cada subscriber** daquele leilão.
-3. Cada stream está num laço fazendo `fila.get()` e `yield`, entregando a mensagem pela conexão HTTP/2 aberta.
+1. **Publicação:** quando um lance é aceito, o auction-service faz `redis.publish("leilao:<id>", evento_json)` (`services/auction/notifier.py`). Ele só publica e segue; não conhece quem recebe.
+2. **Assinatura:** o **notification-service** (processo separado) expõe o `SubscribeUpdates`; ao ser chamado para um leilão, ele assina o canal `leilao:<id>` no Redis e converte cada evento recebido num `AuctionUpdate` entregue pelo stream gRPC.
+3. **Fan-out:** o gateway mantém uma stream por leilão contra o notification-service e reespalha via Socket.IO para a room `leilao_<id>`, atingindo N navegadores.
 
-**Isolamento por leilão:** as notificações de um leilão não vazam para outro. No auction-service, os subscribers são indexados por `leilao_id`; no gateway, por rooms `leilao_<id>` do Socket.IO.
+**Por que um broker (ponto de SD):** o publicador (auction-service) e o entregador (notification-service) ficam **desacoplados** — compartilham só o nome do canal, não memória nem processo. É o modo clássico de microsserviços se comunicarem (assíncrono, desacoplado), e permite escalar ou trocar a entrega sem tocar no auction-service. Antes, os inscritos viviam em filas na memória do auction-service; agora vivem num broker externo que qualquer serviço pode assinar.
 
-> O `Notifier` encapsula esse broadcast atrás de uma interface simples (`subscribe`/`unsubscribe`/`publish`). Hoje usa filas em memória; numa evolução futura, a implementação interna pode virar Redis pub/sub sem mudar o servicer.
+**Isolamento por leilão:** um canal Redis por leilão (`leilao:<id>`); no gateway, rooms `leilao_<id>`. Mensagens de leilões diferentes não se cruzam.
 
-**O que mostrar:** abrir duas abas no mesmo leilão, dar um lance numa e ver a outra atualizar sozinha, sem refresh.
+**O que mostrar:** duas abas no mesmo leilão, dar um lance numa e ver a outra atualizar sozinha. Citar a cadeia **auction-service -> Redis -> notification-service -> gateway -> navegador**.
 
 ---
 
@@ -146,12 +146,14 @@ Isto é o problema clássico de **seção crítica** e **exclusão mútua**. Vá
 
 ## 10. A arquitetura (microsserviços + por que o gateway existe)
 
-O backend é composto por **dois microsserviços gRPC independentes** mais um gateway:
+O backend é composto por **três microsserviços gRPC independentes**, um broker e um gateway:
 - **auth-service** (porta 50052): login e contas. Dono da tabela `transportadoras`.
-- **auction-service** (porta 50051): leilões, lances, o `Lock` de sincronização, status, histórico e streaming. Dono de `leiloes` e `lances`.
-- **gateway**: é cliente gRPC dos dois e a ponte para o navegador.
+- **auction-service** (porta 50051): leilões, lances, o `Lock` de sincronização, status, histórico. Dono de `leiloes` e `lances`. **Publica** os eventos de lance no Redis.
+- **notification-service** (porta 50053): **assina** os canais do Redis e entrega os eventos via server streaming. Não tem banco nem estado de leilão.
+- **Redis** (porta 6379): message broker pub/sub entre auction e notification.
+- **gateway**: cliente gRPC dos três serviços e ponte para o navegador.
 
-**Comunicação serviço-a-serviço:** o gateway abre um canal gRPC para cada serviço e roteia por domínio (login/cadastro -> auth-service; o resto -> auction-service). É comunicação real entre processos pela rede, com contratos `.proto` distintos. O núcleo de sincronização permanece inteiro no auction-service, então a divisão não enfraquece a garantia de ordenação dos lances.
+**Comunicação serviço-a-serviço:** o gateway abre um canal gRPC para cada serviço e roteia por domínio (login/cadastro -> auth-service; leilões/lances -> auction-service; streaming -> notification-service). Já entre auction-service e notification-service a comunicação é **assíncrona via broker** (Redis pub/sub). São dois estilos de comunicação distribuída no mesmo projeto: RPC síncrono e mensageria desacoplada. O núcleo de sincronização permanece inteiro no auction-service, então nada disso enfraquece a garantia de ordenação dos lances.
 
 **Por que o gateway existe:** o navegador **não fala gRPC** (precisaria de gRPC-Web + proxy). O gateway (BFF, Backend for Frontend):
 - Recebe eventos **Socket.IO** do navegador e os converte em chamadas **gRPC** ao serviço certo.
@@ -176,10 +178,13 @@ Transp. A         Gateway        auction-service         Transp. B
    |                 |                   |[lock] 9500>=9500   |
    |                 |                   |[REJEITA] [unlock]  |
    |                 |                   |--rejeitado-------->|
-   |                 |<==AuctionUpdate(9500, lider=A)=========| (stream p/ a room)
+   |                 |        auction-service: publish "leilao:5" no Redis
+   |                 |        Redis -> notification-service (assina) -> gateway (stream)
    |<--auction_update|                   |                    |
-   |   (UI atualiza) |                   |  auction_update--->| (UI de B atualiza)
+   |   (UI atualiza) |                   auction_update------>| (UI de B atualiza)
 ```
+
+> O lance e a validação (lock) ficam no auction-service. A **notificação** sai dele para o Redis e é entregue pelo notification-service, desacoplando publicação de entrega.
 
 ---
 

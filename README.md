@@ -7,9 +7,9 @@ Sistema distribuído cliente-servidor para **leilão reverso de fretes**. O serv
 
 ## Como funciona em 30 segundos
 
-- O backend é dividido em **microsserviços gRPC**: o **auth-service** cuida de login e contas; o **auction-service** cuida de leilões, lances, status, histórico e notificações.
+- O backend é dividido em **microsserviços gRPC**: o **auth-service** (login e contas), o **auction-service** (leilões, lances, status, histórico) e o **notification-service** (entrega das notificações em tempo real).
 - O **auction-service** mantém o estado de cada leilão em memória, protegido por um `threading.Lock()`. Cada lance chega numa thread separada; o lock serializa os lances: o primeiro a entrar registra, e um lance de valor igual ou maior é rejeitado.
-- Quando um lance é aceito, o serviço faz **push** para todos os participantes via server streaming, sem polling.
+- Quando um lance é aceito, o auction-service **publica** o evento no **Redis** (pub/sub). O notification-service **assina** o canal e faz **push** aos clientes via server streaming, sem polling.
 - O navegador não fala gRPC, então um **gateway** traduz Socket.IO para gRPC e roteia para o serviço certo.
 
 ## Stack utilizada
@@ -20,32 +20,35 @@ Sistema distribuído cliente-servidor para **leilão reverso de fretes**. O serv
 | Comunicação navegador | Socket.IO (HTTP long-polling) | Push do servidor para o browser sem conflitar com as threads C do gRPC |
 | Gateway (BFF) | Flask + Flask-SocketIO | Traduz Socket.IO para gRPC e roteia para os microsserviços |
 | Microsserviços | Python 3.12 + gRPC + Protocol Buffers | Contrato tipado por `.proto`, serialização binária e streaming nativo sobre HTTP/2 |
+| Mensageria | Redis (pub/sub) | Broker que desacopla a publicação de eventos (auction) da entrega (notification) |
 | Concorrência | `threading` + `Lock` | Permite demonstrar exclusão mútua explícita (o ponto central do trabalho) |
 | Persistência | PostgreSQL + SQLAlchemy | Sobrevive a reinício; cada serviço dono das suas tabelas |
-| Infraestrutura | Docker + Docker Compose | Sobe banco, auth-service, auction-service e gateway juntos |
+| Infraestrutura | Docker + Docker Compose | Sobe banco, Redis e os serviços juntos |
 
 ## Arquitetura
 
 ```
- FRONTEND          GATEWAY (BFF)        MICROSSERVICOS gRPC            BANCO
- React+TS+MUI <-->  Flask-SocketIO <-->  auth-service    :50052  <-->  PostgreSQL
- :5173      Socket  :5000          gRPC  (login, contas)          SQLAlc  :5432
-            .IO                          auction-service :50051  <-->
-                                         (leiloes, lances,
-                                          Lock, streaming)
-                                                ^ gRPC
-                                          client.py (CLI) BID/STATUS/SAIR
+ FRONTEND          GATEWAY (BFF)         MICROSSERVICOS gRPC
+ React+TS+MUI <-->  Flask-SocketIO <-->  auth-service         :50052  --> PostgreSQL :5432
+ :5173      Socket  :5000          gRPC  auction-service      :50051  --> PostgreSQL + publica no Redis :6379
+            .IO                          notification-service :50053  <-- assina o Redis
+                                                ^ gRPC                            |
+                                          client.py (CLI)            Redis (pub/sub) :6379
 ```
+
+Fluxo da notificação: auction-service publica o lance no Redis -> notification-service assina e faz o streaming -> gateway reespalha para o navegador.
 
 | Componente | Tecnologia | Papel | Porta |
 |---|---|---|---|
 | Frontend | React + TypeScript + Vite + MUI | Interface em tempo real (transportadora e admin) | 5173 |
-| Gateway (BFF) | Flask + Flask-SocketIO (modo threading) | Traduz Socket.IO para gRPC e roteia para auth/auction | 5000 |
+| Gateway (BFF) | Flask + Flask-SocketIO (modo threading) | Traduz Socket.IO para gRPC e roteia para os serviços | 5000 |
 | auth-service | Python 3.12 + gRPC | Login e cadastro de transportadora | 50052 |
-| auction-service | Python 3.12 + gRPC | Leilões, lances, lock de concorrência, server streaming | 50051 |
+| auction-service | Python 3.12 + gRPC | Leilões, lances, lock de concorrência; publica eventos no Redis | 50051 |
+| notification-service | Python 3.12 + gRPC | Assina o Redis e entrega as notificações via server streaming | 50053 |
+| Redis | Redis (pub/sub) | Broker de mensagens entre auction e notification | 6379 |
 | Persistência | PostgreSQL + SQLAlchemy | Postgres compartilhado; cada serviço dono das suas tabelas | 5432 |
-| Cliente CLI | Python + gRPC | Cliente de texto que fala gRPC direto com o auction-service | - |
-| Infra | Docker Compose | Sobe banco, auth-service, auction-service e gateway | - |
+| Cliente CLI | Python + gRPC | Fala com o auction-service (lances) e o notification-service (stream) | - |
+| Infra | Docker Compose | Sobe banco, Redis e os serviços | - |
 
 ## Estrutura do projeto
 
@@ -53,20 +56,24 @@ Sistema distribuído cliente-servidor para **leilão reverso de fretes**. O serv
 leilao-frete/
 ├── protos/
 │   ├── auth.proto              # Contrato do AuthService
-│   └── auction.proto           # Contrato do AuctionService
+│   ├── auction.proto           # Contrato do AuctionService
+│   └── notification.proto      # Contrato do NotificationService (streaming)
 ├── services/
 │   ├── auth/                   # auth-service (login, contas)
 │   │   ├── server.py           # AuthServicer (gRPC, porta 50052)
 │   │   ├── database.py         # tabela transportadoras
-│   │   ├── Dockerfile + requirements.txt
-│   └── auction/                # auction-service (leiloes, lances, streaming)
-│       ├── server.py           # AuctionServicer (gRPC, porta 50051)
-│       ├── state.py            # AuctionState: estado em memória + Lock (seção crítica)
-│       ├── notifier.py         # broadcast aos inscritos (server streaming)
-│       ├── database.py         # tabelas leiloes e lances
+│   │   └── Dockerfile + requirements.txt
+│   ├── auction/                # auction-service (leiloes, lances)
+│   │   ├── server.py           # AuctionServicer (gRPC, porta 50051)
+│   │   ├── state.py            # AuctionState: estado em memória + Lock (seção crítica)
+│   │   ├── notifier.py         # publica os eventos de lance no Redis (pub/sub)
+│   │   ├── database.py         # tabelas leiloes e lances
+│   │   └── Dockerfile + requirements.txt
+│   └── notification/           # notification-service (assina o Redis, faz o streaming)
+│       ├── server.py           # NotificationServicer (gRPC, porta 50053)
 │       └── Dockerfile + requirements.txt
 ├── gateway/
-│   ├── gateway.py              # Ponte Socket.IO para gRPC; roteia para os dois serviços
+│   ├── gateway.py              # Ponte Socket.IO para gRPC; roteia para os três serviços
 │   └── Dockerfile + requirements.txt
 ├── client/client.py            # Cliente CLI de texto (BID / STATUS / SAIR)
 ├── frontend/src/
@@ -112,9 +119,10 @@ Dois lances iguais simultâneos: o primeiro a pegar o lock vence; o segundo enco
 
 1. Transportadora clica em um valor no frontend, que emite `bid` via Socket.IO.
 2. O gateway recebe e chama `PlaceBid` por gRPC no **auction-service**.
-3. O auction-service registra o lance (sob lock) e notifica os inscritos via `SubscribeUpdates`.
-4. O gateway mantém **uma thread de stream por leilão**: ao receber o `AuctionUpdate`, faz `emit` para a room `leilao_<id>`.
-5. Só as abas daquele leilão recebem a atualização; o frontend atualiza status, histórico e dispara o toast.
+3. O auction-service registra o lance (sob lock) e **publica** o evento no Redis, no canal `leilao:<id>`.
+4. O **notification-service** está assinando esse canal; recebe o evento e o entrega pelo `SubscribeUpdates` (server streaming).
+5. O gateway mantém **uma thread de stream por leilão** contra o notification-service; ao receber o `AuctionUpdate`, faz `emit` para a room `leilao_<id>`.
+6. Só as abas daquele leilão recebem a atualização; o frontend atualiza status, histórico e dispara o toast.
 
 ### Estado: memória x banco
 
@@ -123,9 +131,10 @@ Leilões ativos vivem em memória no auction-service (fonte da verdade rápida p
 ### Contratos gRPC
 
 - **AuthService** (`protos/auth.proto`): `Login`, `CreateCarrier`.
-- **AuctionService** (`protos/auction.proto`): RPCs unários (`CreateAuction`, `CloseAuction`, `ListAuctions`, `GetAuctionDetail`, `GetCarrierHistory`, `ResolveJoinCode`, `PlaceBid`, `GetStatus`, `GetHistory`) e um RPC de **server streaming** (`SubscribeUpdates`) que envia um `AuctionUpdate` a cada novo lance ou encerramento.
+- **AuctionService** (`protos/auction.proto`): RPCs unários `CreateAuction`, `CloseAuction`, `ListAuctions`, `GetAuctionDetail`, `GetCarrierHistory`, `ResolveJoinCode`, `PlaceBid`, `GetStatus`, `GetHistory`.
+- **NotificationService** (`protos/notification.proto`): RPC de **server streaming** `SubscribeUpdates`, que envia um `AuctionUpdate` a cada novo lance ou encerramento (alimentado pelo Redis).
 
-O gateway gera os stubs dos dois protos (é cliente de ambos); cada serviço gera só o seu.
+O gateway gera os stubs dos três protos (é cliente de todos); cada serviço gera só o seu.
 
 ### Decisões de design (e o porquê)
 
