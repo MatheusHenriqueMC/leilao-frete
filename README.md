@@ -36,7 +36,7 @@ Sistema distribuído cliente-servidor para **leilão reverso de fretes**. O serv
                                           client.py (CLI)            Redis (pub/sub) :6379
 ```
 
-Fluxo da notificação: auction-service publica o lance no Redis -> notification-service assina e faz o streaming -> gateway reespalha para o navegador.
+Fluxo da notificação: auction-service publica o lance no Redis → notification-service assina e faz o streaming → gateway reespalha para o navegador.
 
 | Componente | Tecnologia | Papel | Porta |
 |---|---|---|---|
@@ -47,21 +47,21 @@ Fluxo da notificação: auction-service publica o lance no Redis -> notification
 | notification-service | Python 3.12 + gRPC | Assina o Redis e entrega as notificações via server streaming | 50053 |
 | Redis | Redis (pub/sub) | Broker de mensagens entre auction e notification | 6379 |
 | Persistência | PostgreSQL + SQLAlchemy | Postgres compartilhado; cada serviço dono das suas tabelas | 5432 |
-| Cliente CLI | Python + gRPC | Fala com o auction-service (lances) e o notification-service (stream) | - |
-| Infra | Docker Compose | Sobe banco, Redis e os serviços | - |
+| Cliente CLI | Python + gRPC | Fala com o auction-service (lances) e o notification-service (stream) | — |
+| Infra | Docker Compose | Sobe banco, Redis e os serviços | — |
 
 ## Estrutura do projeto
 
 ```
 leilao-frete/
 ├── protos/
-│   ├── auth.proto              # Contrato do AuthService
+│   ├── auth.proto              # Contrato do AuthService (Login, CreateCarrier, GetCarrier)
 │   ├── auction.proto           # Contrato do AuctionService
 │   └── notification.proto      # Contrato do NotificationService (streaming)
 ├── services/
-│   ├── auth/                   # auth-service (login, contas)
+│   ├── auth/                   # auth-service (login, contas, dados de contato)
 │   │   ├── server.py           # AuthServicer (gRPC, porta 50052)
-│   │   ├── database.py         # tabela transportadoras
+│   │   ├── database.py         # tabela transportadoras (username, password, cnpj, email, telefone)
 │   │   └── Dockerfile + requirements.txt
 │   ├── auction/                # auction-service (leiloes, lances)
 │   │   ├── server.py           # AuctionServicer (gRPC, porta 50051)
@@ -73,14 +73,17 @@ leilao-frete/
 │   │   ├── server.py           # NotificationServicer (gRPC, porta 50053)
 │   │   └── Dockerfile + requirements.txt
 │   └── gateway/                # gateway/BFF (Socket.IO <-> gRPC)
-│       ├── gateway.py          # roteia para os três serviços
+│       ├── gateway.py          # roteia para os três serviços; serve /docs e /health
 │       └── Dockerfile + requirements.txt
 ├── client/client.py            # Cliente CLI de texto (BID / STATUS / SAIR)
 ├── frontend/src/
 │   ├── hooks/useSocket.ts      # Hook central de comunicação com o gateway
 │   ├── pages/                  # Login, AdminDashboard, AdminPage,
 │   │                           #   TransportadoraDashboard, AuctionPage
-│   └── components/             # StatusPanel, BidHistory, modais, toasts (MUI)
+│   └── components/             # StatusPanel, BidHistory, RichTextEditor, modais (MUI)
+├── gerar_swagger.py            # Gera swagger.html com a documentação da API Socket.IO
+├── run_tests.ps1               # Roda a suíte de testes (cria .venv automaticamente)
+├── requirements-dev.txt        # Dependências para rodar os testes localmente
 ├── docs/                       # SETUP.md (rodar), REDES.md (apresentação)
 ├── docker-compose.yml
 └── README.md
@@ -91,7 +94,7 @@ Cada serviço tem seu próprio `Dockerfile` e `requirements.txt`, gerando os stu
 ## Papéis na interface
 
 - **Transportadora**: vê a carga, o menor lance ao vivo, o timer, o histórico e o formulário de lance; recebe um toast sonoro e visual ao perder a liderança.
-- **Admin**: cria leilões e contas de transportadora, vê o histórico, monitora a sala e encerra o leilão com o countdown "Dou-lhe uma, duas, três".
+- **Admin**: cria leilões (com imagens, descrição e especificações em rich text) e contas de transportadora (com CNPJ, e-mail e telefone), monitora a sala e encerra o leilão com o countdown "Dou-lhe uma, duas, três" (6 segundos reais, 3 visuais).
 
 ## Como rodar
 
@@ -114,7 +117,7 @@ Vive no auction-service. Em `services/auction/state.py`, o método `registrar_la
 5. Registra o lance, atualiza o líder e libera o lock.
 6. A persistência no banco ocorre **fora** do lock, mantendo a seção crítica curta.
 
-Dois lances iguais simultâneos: o primeiro a pegar o lock vence; o segundo encontra o teto já atualizado e é rejeitado por não ser estritamente menor. **Empate é impossível.** Separar a autenticação em outro serviço não toca nesse caminho: todos os lances continuam passando por um único `Lock` no auction-service.
+Dois lances iguais simultâneos: o primeiro a pegar o lock vence; o segundo encontra o teto já atualizado e é rejeitado por não ser estritamente menor. **Empate é impossível.**
 
 ### Caminho de um lance (ponta a ponta)
 
@@ -131,7 +134,7 @@ Leilões ativos vivem em memória no auction-service (fonte da verdade rápida p
 
 ### Contratos gRPC
 
-- **AuthService** (`protos/auth.proto`): `Login`, `CreateCarrier`.
+- **AuthService** (`protos/auth.proto`): `Login`, `CreateCarrier`, `GetCarrier`.
 - **AuctionService** (`protos/auction.proto`): RPCs unários `CreateAuction`, `CloseAuction`, `ListAuctions`, `GetAuctionDetail`, `GetCarrierHistory`, `ResolveJoinCode`, `PlaceBid`, `GetStatus`, `GetHistory`.
 - **NotificationService** (`protos/notification.proto`): RPC de **server streaming** `SubscribeUpdates`, que envia um `AuctionUpdate` a cada novo lance ou encerramento (alimentado pelo Redis).
 
@@ -145,6 +148,21 @@ O gateway gera os stubs dos três protos (é cliente de todos); cada serviço ge
 - **Cliente CLI separado:** cumpre o enunciado ao pé da letra (`BID <valor>`, `STATUS`), falando gRPC direto com o auction-service, sem passar pelo gateway.
 - **Persistência fora do lock:** o `INSERT` no Postgres é lento; mantê-lo fora da seção crítica evita travar os outros lances.
 
+## Documentação da API (Swagger)
+
+Os eventos Socket.IO do gateway estão documentados em formato Swagger-like com payload de entrada e resposta para cada evento.
+
+**Gerar o HTML localmente:**
+
+```powershell
+python gerar_swagger.py
+# Abre swagger.html no navegador
+```
+
+**Com o Docker rodando**, acesse diretamente em: [http://localhost:5000/docs](http://localhost:5000/docs)
+
+A documentação cobre todos os 17 eventos Socket.IO agrupados por categoria (Autenticação, Gestão de Leilões, Sala do Leilão, Encerramento e Notificações em Tempo Real), além de um diagrama da arquitetura completa.
+
 ## Testes
 
 Suíte focada nos conceitos de Sistemas Distribuídos do projeto (não em cobertura ampla): **sincronização (lock), pub/sub e streaming**. São **28 testes** com `pytest`, que rodam **sem Docker** (usam `fakeredis` e SQLite in-memory).
@@ -155,20 +173,27 @@ Suíte focada nos conceitos de Sistemas Distribuídos do projeto (não em cobert
 | **notification** | entrega do `AuctionUpdate` via `SubscribeUpdates` (streaming) e isolamento entre leilões |
 | **auth** | login do `AuthServicer` (transportadora, admin e credencial inválida) |
 
-### Como rodar
+### Como rodar os testes
 
-```bash
-pip install -r requirements-dev.txt
+O script `run_tests.ps1` **cria o ambiente virtual e instala as dependências automaticamente** na primeira execução — não é necessário nenhum passo manual.
 
-# Suite completa (gera e abre o relatorio)
-./run_tests.ps1
+```powershell
+# Suite completa — cria .venv se nao existir, gera stubs gRPC e abre o relatorio HTML
+.\run_tests.ps1
 
-# Um teste especifico
-./run_tests.ps1 lances_iguais
-python -m pytest "services/auction/tests/test_state.py::test_lances_iguais_so_um_vence" -s
+# Filtrar por nome (roda so os testes que contem o termo)
+.\run_tests.ps1 lances_iguais
+.\run_tests.ps1 auth
+.\run_tests.ps1 notifier
 ```
 
-Cada serviço tem seu próprio `tests/` e `conftest.py` (por causa dos imports flat). A suíte completa gera o **`relatorio-testes.html`** (relatório visual, abre no navegador) com o resultado e o detalhamento de cada teste.
+Na primeira execução, o script:
+1. Cria o `.venv` na raiz do projeto
+2. Instala as dependências de `requirements-dev.txt` (pytest, fakeredis, grpcio-tools, sqlalchemy, etc.)
+3. Gera os stubs gRPC de cada serviço em `services/<svc>/generated/`
+4. Roda os testes e, ao final da suite completa, gera e abre o **`relatorio-testes.html`**
+
+> O `.venv` e o `relatorio-testes.html` não são versionados (estão no `.gitignore`).
 
 ## Equipe
 
