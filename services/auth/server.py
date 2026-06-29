@@ -68,8 +68,23 @@ class AuthServicer(auth_pb2_grpc.AuthServiceServicer):
         sucesso, mensagem = self._db.criar_transportadora(
             username=request.username.strip(),
             password=request.password,
+            cnpj=request.cnpj.strip(),
+            email=request.email.strip(),
+            telefone=request.telefone.strip(),
         )
         return auth_pb2.CreateCarrierResponse(sucesso=sucesso, mensagem=mensagem)
+
+    def GetCarrier(self, request, _context):
+        dados = self._db.buscar_transportadora(request.username.strip())
+        if not dados:
+            return auth_pb2.GetCarrierResponse(encontrado=False)
+        return auth_pb2.GetCarrierResponse(
+            encontrado=True,
+            username=dados["username"],
+            cnpj=dados["cnpj"],
+            email=dados["email"],
+            telefone=dados["telefone"],
+        )
 
 
 def serve():

@@ -224,3 +224,7 @@ node_modules/
 
 # Stubs gRPC gerados pelo protoc (cada servico gera os seus no build)
 generated/
+
+# Arquivos gerados localmente (nao versionar)
+swagger.html
+relatorio-testes.html

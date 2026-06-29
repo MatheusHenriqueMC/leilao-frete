@@ -70,7 +70,11 @@ export default function AuctionPreviewModal({ leilao, onClose, onEnter, isAdmin 
                 <Typography variant="caption" color="text.disabled" sx={{ textTransform: 'uppercase' }}>
                   Descrição
                 </Typography>
-                <Typography variant="body2" color="text.secondary">{leilao.descricao}</Typography>
+                <Typography
+                  component="div" variant="body2" color="text.secondary"
+                  sx={{ whiteSpace: 'pre-wrap', '& b, & strong': { fontWeight: 700 }, '& i, & em': { fontStyle: 'italic' } }}
+                  dangerouslySetInnerHTML={{ __html: leilao.descricao }}
+                />
               </Box>
             </>
           )}
@@ -82,9 +86,11 @@ export default function AuctionPreviewModal({ leilao, onClose, onEnter, isAdmin 
                 <Typography variant="caption" color="text.disabled" sx={{ textTransform: 'uppercase' }}>
                   Especificações
                 </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-line' }}>
-                  {leilao.especificacoes}
-                </Typography>
+                <Typography
+                  component="div" variant="body2" color="text.secondary"
+                  sx={{ whiteSpace: 'pre-wrap', '& b, & strong': { fontWeight: 700 }, '& i, & em': { fontStyle: 'italic' } }}
+                  dangerouslySetInnerHTML={{ __html: leilao.especificacoes }}
+                />
               </Box>
             </>
           )}

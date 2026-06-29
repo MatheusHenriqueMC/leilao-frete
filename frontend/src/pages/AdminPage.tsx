@@ -7,6 +7,9 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import BusinessIcon from '@mui/icons-material/Business'
+import EmailIcon from '@mui/icons-material/Email'
+import PhoneIcon from '@mui/icons-material/Phone'
 import { useSocket } from '../hooks/useSocket'
 import StatusPanel  from '../components/StatusPanel'
 import BidHistory   from '../components/BidHistory'
@@ -47,8 +50,9 @@ export default function AdminPage() {
 
   const {
     connected, status, history, closeResponse, lastUpdate, countdownEvent, error,
+    carrierInfo,
     joinAuction, requestStatus, requestHistory, closeAuction,
-    startCountdown, cancelCountdown, clearError,
+    startCountdown, cancelCountdown, clearError, fetchCarrierInfo,
   } = useSocket()
 
   const [joined, setJoined]         = useState(false)
@@ -76,8 +80,17 @@ export default function AdminPage() {
     if (closeResponse?.leilao_id === leilaoId) {
       setClosing(false)
       setCountdown(null)
+      if (closeResponse.sucesso && closeResponse.vencedor_id) {
+        fetchCarrierInfo(closeResponse.vencedor_id)
+      }
     }
-  }, [closeResponse, leilaoId])
+  }, [closeResponse, leilaoId, fetchCarrierInfo])
+
+  useEffect(() => {
+    if (lastUpdate?.encerrado && lastUpdate.leilao_id === leilaoId && lastUpdate.transportadora_lider) {
+      fetchCarrierInfo(lastUpdate.transportadora_lider)
+    }
+  }, [lastUpdate, leilaoId, fetchCarrierInfo])
 
   useEffect(() => {
     if (!countdownEvent || countdownEvent.leilao_id !== leilaoId) return
@@ -92,7 +105,7 @@ export default function AdminPage() {
           if (intervalRef.current) clearInterval(intervalRef.current)
           closeAuction(leilaoId, userId!)
         }
-      }, 1000)
+      }, 2000)
     } else {
       if (intervalRef.current) clearInterval(intervalRef.current)
       setClosing(false)
@@ -182,20 +195,52 @@ export default function AdminPage() {
       <Container maxWidth="sm" sx={{ py: 3 }}>
         <Stack spacing={2}>
           {vencedor && (
-            <Paper sx={{ background: 'linear-gradient(90deg, #16a34a, #15803d)', color: 'white', p: 3, textAlign: 'center', border: 'none' }}>
-              <Stack direction="row" alignItems="center" justifyContent="center" spacing={1} mb={0.5}>
-                <CheckCircleIcon />
-                <Typography variant="h6" fontWeight={700}>Leilão Encerrado!</Typography>
-              </Stack>
-              {vencedor.id ? (
-                <>
-                  <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                    Vencedor: <strong>{vencedor.id}</strong>
+            <Paper sx={{ border: 'none', overflow: 'hidden' }}>
+              <Box sx={{ background: 'linear-gradient(90deg, #16a34a, #15803d)', color: 'white', p: 3, textAlign: 'center' }}>
+                <Stack direction="row" alignItems="center" justifyContent="center" spacing={1} mb={0.5}>
+                  <CheckCircleIcon />
+                  <Typography variant="h6" fontWeight={700}>Leilão Encerrado!</Typography>
+                </Stack>
+                {vencedor.id ? (
+                  <>
+                    <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                      Vencedor: <strong>{vencedor.id}</strong>
+                    </Typography>
+                    <Typography variant="h5" fontWeight={700} mt={1}>{brl(vencedor.valor)}</Typography>
+                  </>
+                ) : (
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Nenhum lance registrado.</Typography>
+                )}
+              </Box>
+              {carrierInfo?.encontrado && vencedor.id && (
+                <Box sx={{ px: 3, py: 2, bgcolor: 'grey.50' }}>
+                  <Typography variant="caption" color="text.disabled" sx={{ textTransform: 'uppercase', fontWeight: 600, display: 'block', mb: 1 }}>
+                    Dados de contato
                   </Typography>
-                  <Typography variant="h5" fontWeight={700} mt={1}>{brl(vencedor.valor)}</Typography>
-                </>
-              ) : (
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>Nenhum lance registrado.</Typography>
+                  <Stack spacing={0.75}>
+                    {carrierInfo.cnpj && (
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        <BusinessIcon fontSize="small" color="action" />
+                        <Typography variant="body2">{carrierInfo.cnpj}</Typography>
+                      </Stack>
+                    )}
+                    {carrierInfo.email && (
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        <EmailIcon fontSize="small" color="action" />
+                        <Typography variant="body2">{carrierInfo.email}</Typography>
+                      </Stack>
+                    )}
+                    {carrierInfo.telefone && (
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        <PhoneIcon fontSize="small" color="action" />
+                        <Typography variant="body2">{carrierInfo.telefone}</Typography>
+                      </Stack>
+                    )}
+                    {!carrierInfo.cnpj && !carrierInfo.email && !carrierInfo.telefone && (
+                      <Typography variant="body2" color="text.disabled">Nenhum dado de contato cadastrado.</Typography>
+                    )}
+                  </Stack>
+                </Box>
               )}
             </Paper>
           )}
@@ -216,10 +261,14 @@ export default function AdminPage() {
 
           {status?.especificacoes && (
             <Paper variant="outlined" sx={{ px: 2.5, py: 2 }}>
-              <Typography variant="caption" color="text.disabled" sx={{ textTransform: 'uppercase' }}>
+              <Typography variant="caption" color="text.disabled" sx={{ textTransform: 'uppercase', display: 'block', mb: 0.5 }}>
                 Especificações
               </Typography>
-              <Typography variant="body2" color="text.secondary">{status.especificacoes}</Typography>
+              <Typography
+                component="div" variant="body2" color="text.secondary"
+                sx={{ whiteSpace: 'pre-wrap', '& b, & strong': { fontWeight: 700 }, '& i, & em': { fontStyle: 'italic' } }}
+                dangerouslySetInnerHTML={{ __html: status.especificacoes }}
+              />
             </Paper>
           )}
 

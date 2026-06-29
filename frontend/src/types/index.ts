@@ -38,6 +38,14 @@ export interface CreateCarrierResult {
   mensagem: string
 }
 
+export interface CarrierInfo {
+  encontrado: boolean
+  username: string
+  cnpj: string
+  email: string
+  telefone: string
+}
+
 export interface CreateAuctionResult {
   sucesso: boolean
   leilao_id: number
