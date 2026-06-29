@@ -60,8 +60,8 @@ def _collect_one(pubsub, timeout: float = 2.0):
 
 # ── Pub/sub no canal correto ─────────────────────────────────────────────────
 
-def test_publica_no_canal_do_leilao(monkeypatch):
-    """Pub/sub: evento publicado em leilao:7 chega ao assinante do canal certo."""
+def test_publica_no_canal_do_leilao(monkeypatch, record_property):
+    """Pub/sub: evento publicado em leilão:7 chega ao assinante do canal certo."""
     # Evento publicado em leilao:7 chega ao assinante de leilao:7.
     n, sub = _setup(monkeypatch)
     ps = sub.pubsub(ignore_subscribe_messages=True)
@@ -74,10 +74,12 @@ def test_publica_no_canal_do_leilao(monkeypatch):
     dados = json.loads(msg["data"])
     assert dados["menor_lance"] == 9_000
     assert dados["leilao_id"] == 7
+    record_property("info", "evento publicado em leilão:7 entregue ao assinante")
+    record_property("viz", "flow:Auction>Redis>Assinante")
 
 
-def test_publish_retorna_numero_de_receptores(monkeypatch):
-    """Pub/sub: publish retorna o numero de assinantes que receberam o evento."""
+def test_publish_retorna_numero_de_receptores(monkeypatch, record_property):
+    """Pub/sub: publish retorna o número de assinantes que receberam o evento."""
     # publish retorna quantos assinantes receberam o evento.
     n, sub = _setup(monkeypatch)
     ps = sub.pubsub(ignore_subscribe_messages=True)
@@ -86,6 +88,8 @@ def test_publish_retorna_numero_de_receptores(monkeypatch):
 
     receptores = n.publish(3, {**EVENTO_BASE, "leilao_id": 3})
     assert receptores == 1
+    record_property("info", f"publish retornou {receptores} receptor(es)")
+    record_property("viz", f"flow:Publish>Canal>{receptores} sub")
 
 
 def test_publish_encerrado_carrega_flag(monkeypatch):
@@ -104,8 +108,8 @@ def test_publish_encerrado_carrega_flag(monkeypatch):
 
 # ── Isolamento entre leiloes ─────────────────────────────────────────────────
 
-def test_isolamento_entre_leiloes(monkeypatch):
-    """Isolamento: quem assina leilao:1 nao recebe evento do leilao:2."""
+def test_isolamento_entre_leiloes(monkeypatch, record_property):
+    """Isolamento: quem assina leilão:1 não recebe evento do leilão:2."""
     # Quem assina leilao:1 nao recebe evento publicado em leilao:2.
     n, sub = _setup(monkeypatch)
     ps = sub.pubsub(ignore_subscribe_messages=True)
@@ -115,10 +119,12 @@ def test_isolamento_entre_leiloes(monkeypatch):
 
     msg = _collect_one(ps, timeout=0.5)
     assert msg is None, "Evento do leilao 2 vazou para o assinante do leilao 1"
+    record_property("info", "evento de outro leilao NAO vazou (isolado)")
+    record_property("viz", "checks:assinante leilão 1=ok;evento leilão 2 isolado=ok")
 
 
 def test_assinante_recebe_proprio_canal_mas_nao_outro(monkeypatch):
-    """Isolamento: dois assinantes em canais distintos so veem o proprio."""
+    """Isolamento: dois assinantes em canais distintos só veem o próprio."""
     # Dois assinantes, canais distintos: cada um so ve o seu.
     n, sub1, sub2 = _setup(monkeypatch, n_subs=2)
 

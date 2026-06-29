@@ -11,8 +11,8 @@ from helpers import novo_estado, run_concurrent
 
 # ── Concorrencia ─────────────────────────────────────────────────────────────
 
-def test_lances_iguais_so_um_vence():
-    """Lances iguais simultaneos: o lock garante que so um vence."""
+def test_lances_iguais_so_um_vence(record_property):
+    """Lances iguais simultâneos: o lock garante que só um vence."""
     # N threads disparam o mesmo valor juntas: o lock garante que so um vence.
     N = 20
     for _ in range(100):  # repete para flagrar flakiness de race condition
@@ -21,10 +21,12 @@ def test_lances_iguais_so_um_vence():
         aceitos = [ok for ok, _, _ in resultados]
         assert sum(aceitos) == 1, f"Esperado 1 aceito, obtido {sum(aceitos)}"
         assert len(state.historico_lances) == 1
+    record_property("info", f"{N} threads simultâneas -> 1 aceito, {N - 1} rejeitados")
+    record_property("viz", f"grid:{N}:{sum(aceitos)}")
 
 
-def test_estresse_valores_variados():
-    """Concorrencia: lances variados simultaneos deixam o estado consistente."""
+def test_estresse_valores_variados(record_property):
+    """Concorrência: lances variados simultâneos deixam o estado consistente."""
     # Valores distintos e concorrentes: o estado final fica consistente.
     N = 30
     state = novo_estado(valor_inicial=50_000.0)
@@ -42,12 +44,14 @@ def test_estresse_valores_variados():
     # Invariante: o menor_lance e o menor valor aceito.
     if state.menor_lance:
         assert state.menor_lance.valor == min(r[1] for r in aceitos)
+    record_property("info", f"{N} lances concorrentes -> {len(aceitos)} aceitos, estado consistente")
+    record_property("viz", f"grid:{N}:{len(aceitos)}")
 
 
 # ── Validacao do lance ───────────────────────────────────────────────────────
 
 def test_primeiro_lance_igual_ao_inicial_rejeitado():
-    """Validacao: lance igual ao valor inicial e rejeitado."""
+    """Validação: lance igual ao valor inicial é rejeitado."""
     # Lance precisa ser menor que o valor inicial, nunca igual.
     state = novo_estado(valor_inicial=10_000)
     ok, msg, _ = state.registrar_lance(10_000, "a")
@@ -56,14 +60,14 @@ def test_primeiro_lance_igual_ao_inicial_rejeitado():
 
 
 def test_primeiro_lance_menor_que_inicial_aceito():
-    """Validacao: primeiro lance menor que o inicial e aceito."""
+    """Validação: primeiro lance menor que o inicial é aceito."""
     state = novo_estado(valor_inicial=10_000)
     ok, _, _ = state.registrar_lance(9_000, "a")
     assert ok is True
 
 
 def test_lance_igual_ao_teto_atual_rejeitado():
-    """Validacao: empatar com o menor lance atual e rejeitado."""
+    """Validação: empatar com o menor lance atual é rejeitado."""
     # Empatar com o menor lance atual nao basta: tem que ser estritamente menor.
     state = novo_estado(valor_inicial=10_000)
     state.registrar_lance(9_000, "a")
@@ -72,7 +76,7 @@ def test_lance_igual_ao_teto_atual_rejeitado():
 
 
 def test_lance_maior_que_teto_rejeitado():
-    """Validacao: lance maior que o menor atual e rejeitado."""
+    """Validação: lance maior que o menor atual é rejeitado."""
     state = novo_estado(valor_inicial=10_000)
     state.registrar_lance(9_000, "a")
     ok, _, _ = state.registrar_lance(9_500, "b")
@@ -81,7 +85,7 @@ def test_lance_maior_que_teto_rejeitado():
 
 @pytest.mark.parametrize("valor", [0, -100, -1])
 def test_valor_invalido_rejeitado(valor):
-    """Validacao: valores zero ou negativos sao sempre rejeitados."""
+    """Validação: valores zero ou negativos são sempre rejeitados."""
     # Valores zero ou negativos sao sempre rejeitados.
     state = novo_estado()
     ok, _, _ = state.registrar_lance(valor, "a")
@@ -90,7 +94,7 @@ def test_valor_invalido_rejeitado(valor):
 
 @pytest.mark.parametrize("tid", ["", "   "])
 def test_transportadora_id_invalido_rejeitado(tid):
-    """Validacao: id de transportadora vazio ou em branco e rejeitado."""
+    """Validação: id de transportadora vazio ou em branco é rejeitado."""
     # Id vazio ou so com espacos e considerado invalido.
     state = novo_estado()
     ok, _, _ = state.registrar_lance(9_000, tid)
@@ -98,7 +102,7 @@ def test_transportadora_id_invalido_rejeitado(tid):
 
 
 def test_lance_em_leilao_encerrado_rejeitado():
-    """Encerramento: nenhum lance entra apos o leilao encerrado."""
+    """Encerramento: nenhum lance entra após o leilão encerrado."""
     # Depois de encerrado nao entra mais lance.
     state = novo_estado()
     state.encerrar_leilao()
@@ -110,7 +114,7 @@ def test_lance_em_leilao_encerrado_rejeitado():
 # ── Estado e encerramento ────────────────────────────────────────────────────
 
 def test_obter_status_sem_lances():
-    """Estado: sem lances, o status reporta o valor inicial e nenhum lider."""
+    """Estado: sem lances, o status reporta o valor inicial e nenhum líder."""
     # Sem lances, o status reporta o valor inicial e nenhum lider.
     state = novo_estado(valor_inicial=10_000)
     status = state.obter_status()
@@ -121,7 +125,7 @@ def test_obter_status_sem_lances():
 
 
 def test_obter_status_apos_lance():
-    """Estado: apos um lance, o status reflete valor, lider e total."""
+    """Estado: após um lance, o status reflete valor, líder e total."""
     state = novo_estado(valor_inicial=10_000)
     state.registrar_lance(8_000, "sp_log")
     status = state.obter_status()
@@ -132,7 +136,7 @@ def test_obter_status_apos_lance():
 
 
 def test_obter_status_apos_encerramento():
-    """Encerramento: apos encerrar, o status marca encerrado=True."""
+    """Encerramento: após encerrar, o status marca encerrado=True."""
     state = novo_estado()
     state.registrar_lance(7_000, "a")
     state.encerrar_leilao()
@@ -153,7 +157,7 @@ def test_encerrar_leilao_com_vencedor():
 
 
 def test_encerrar_leilao_sem_nenhum_lance():
-    """Encerramento: sem lances nao ha vencedor e o valor volta ao inicial."""
+    """Encerramento: sem lances não há vencedor e o valor volta ao inicial."""
     # Sem lances nao ha vencedor; valor final volta ao inicial.
     state = novo_estado(valor_inicial=10_000)
     resultado = state.encerrar_leilao()

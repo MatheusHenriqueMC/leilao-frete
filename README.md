@@ -145,6 +145,32 @@ O gateway gera os stubs dos três protos (é cliente de todos); cada serviço ge
 - **Cliente CLI separado:** cumpre o enunciado ao pé da letra (`BID <valor>`, `STATUS`), falando gRPC direto com o auction-service, sem passar pelo gateway.
 - **Persistência fora do lock:** o `INSERT` no Postgres é lento; mantê-lo fora da seção crítica evita travar os outros lances.
 
+## Testes
+
+Suíte focada nos conceitos de Sistemas Distribuídos do projeto (não em cobertura ampla): **sincronização (lock), pub/sub e streaming**. São **28 testes** com `pytest`, que rodam **sem Docker** (usam `fakeredis` e SQLite in-memory).
+
+| Serviço | Cobre |
+|---|---|
+| **auction** | concorrência do `Lock` (lances iguais → 1 vence), validação do lance, estado/encerramento, **teste de carga** (2500 lances simultâneos) e pub/sub do `Notifier` |
+| **notification** | entrega do `AuctionUpdate` via `SubscribeUpdates` (streaming) e isolamento entre leilões |
+| **auth** | login do `AuthServicer` (transportadora, admin e credencial inválida) |
+
+### Como rodar
+
+```bash
+pip install -r requirements-dev.txt
+
+# Suite completa (saida ao vivo + banner + relatorio HTML)
+./run_tests.ps1                      # Windows (PowerShell)
+python -m pytest services/auction services/auth services/notification
+
+# Um teste especifico (detalhe so no terminal)
+python -m pytest "services/auction/tests/test_state.py::test_lances_iguais_so_um_vence" -s
+./run_tests.ps1 lances_iguais        # por palavra-chave
+```
+
+Cada serviço tem seu próprio `tests/` e `conftest.py` (por causa dos imports flat). A suíte completa gera o **`relatorio-testes.html`** (relatório visual, abre no navegador) com o resultado e o detalhamento de cada teste.
+
 ## Equipe
 
 Equipe 14 (tema da Equipe 09): Ágata · Daniel Ramos · Felipe Leite · Matheus Henrique · Matheus Stepple
