@@ -19,8 +19,8 @@ class FakeRequest:
 
 # ── Login RPC ─────────────────────────────────────────────────────────────────
 
-def test_login():
-    """Login: transportadora e admin validos logam; credencial invalida falha."""
+def test_login(record_property):
+    """Login: transportadora e admin válidos logam; credencial inválida falha."""
     # Banco isolado por teste, sem tocar em disco.
     db = Database("sqlite:///:memory:")
     db.criar_tabelas()
@@ -41,3 +41,5 @@ def test_login():
     resp = servicer.Login(FakeRequest("fantasma", "qualquer"), None)
     assert resp.sucesso is False
     assert resp.role == ""
+    record_property("info", "transportadora e admin logaram; inexistente rejeitado")
+    record_property("viz", "checks:transportadora=ok;admin=ok;inexistente rejeitado=ok")

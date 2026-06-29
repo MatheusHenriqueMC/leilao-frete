@@ -104,8 +104,8 @@ def subscribe_thread(servicer, leilao_id: int, transportadora_id: str,
 # ── Entrega do evento ────────────────────────────────────────────────────────
 
 @pytest.mark.timeout(5)
-def test_subscribe_recebe_auction_update(servicer, pub_redis):
-    """Streaming gRPC: assinante de leilao:42 recebe o AuctionUpdate correto."""
+def test_subscribe_recebe_auction_update(servicer, pub_redis, record_property):
+    """Streaming gRPC: assinante de leilão:42 recebe o AuctionUpdate correto."""
     # O assinante de leilao:42 recebe o AuctionUpdate com os campos corretos.
     result_q, _ = subscribe_thread(servicer, 42, "transportadora_x")
 
@@ -120,6 +120,8 @@ def test_subscribe_recebe_auction_update(servicer, pub_redis):
     assert update.transportadora_lider == "fretelog_sp"
     assert update.encerrado is False
     assert update.tempo_restante_s == 300
+    record_property("info", "AuctionUpdate do leilão:42 entregue via streaming")
+    record_property("viz", "flow:Redis>Streaming>Assinante")
 
 
 @pytest.mark.timeout(5)
@@ -140,8 +142,8 @@ def test_subscribe_entrega_flag_encerrado(servicer, pub_redis):
 # ── Isolamento entre leiloes ─────────────────────────────────────────────────
 
 @pytest.mark.timeout(5)
-def test_isolamento_leilao_a_nao_chega_em_b(fake_server, pub_redis, monkeypatch):
-    """Isolamento gRPC: evento do leilao:1 nao vaza para quem assina leilao:2."""
+def test_isolamento_leilao_a_nao_chega_em_b(fake_server, pub_redis, monkeypatch, record_property):
+    """Isolamento gRPC: evento do leilão:1 não vaza para quem assina leilão:2."""
     # Evento em leilao:1 nao pode vazar para quem assina leilao:2.
     import server as srv
     monkeypatch.setattr(
@@ -159,13 +161,15 @@ def test_isolamento_leilao_a_nao_chega_em_b(fake_server, pub_redis, monkeypatch)
     ctx.receive_stop()
 
     assert result_q.empty(), "Evento do leilao 1 vazou para o assinante do leilao 2"
+    record_property("info", "evento de outro leilao NAO vazou (isolado)")
+    record_property("viz", "checks:assina leilão 2=ok;evento leilão 1 isolado=ok")
 
 
 # ── Multiplos eventos ────────────────────────────────────────────────────────
 
 @pytest.mark.timeout(5)
-def test_subscribe_recebe_multiplos_eventos(servicer, pub_redis):
-    """Streaming gRPC: eventos em sequencia chegam todos e na ordem correta."""
+def test_subscribe_recebe_multiplos_eventos(servicer, pub_redis, record_property):
+    """Streaming gRPC: eventos em sequência chegam todos e na ordem correta."""
     # Eventos publicados em sequencia chegam todos, na ordem.
     result_q, _ = subscribe_thread(servicer, 7, "trans_multi", max_items=3)
 
@@ -188,3 +192,5 @@ def test_subscribe_recebe_multiplos_eventos(servicer, pub_redis):
     assert abs(lances[0] - 9000) < 1
     assert abs(lances[1] - 8000) < 1
     assert abs(lances[2] - 7000) < 1
+    record_property("info", f"{len(updates)} eventos entregues na ordem")
+    record_property("viz", "seq:9000,8000,7000")

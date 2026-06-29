@@ -11,8 +11,8 @@ from helpers import novo_estado, run_concurrent
 
 # ── Teste de carga ────────────────────────────────────────────────────────────
 
-def test_carga_lock_alto_volume():
-    """Carga: 50 workers e 2500 lances simultaneos sem lost update no lock."""
+def test_carga_lock_alto_volume(record_property):
+    """Carga: 50 workers e 2500 lances simultâneos sem lost update no lock."""
 
     NUM_WORKERS = 50
     LANCES_POR_WORKER = 50
@@ -39,8 +39,12 @@ def test_carga_lock_alto_volume():
     aceitos = [r for r in resultados if r[0]]
     rejeitados = [r for r in resultados if not r[0]]
 
+    throughput = len(resultados) / duracao if duracao > 0 else 0
+    record_property("info", f"{len(resultados)} lances -> {len(aceitos)} aceitos | throughput {throughput:.0f}/s")
+    record_property("viz", f"ratio:{len(aceitos)}:{len(rejeitados)}:aceitos:rejeitados")
+
     if duracao > 0:
-        print(f"\n  throughput: {len(resultados) / duracao:.0f} tentativas/s"
+        print(f"\n  throughput: {throughput:.0f} tentativas/s"
               f"  aceitos={len(aceitos)}  rejeitados={len(rejeitados)}"
               f"  tempo={duracao:.3f}s")
 
