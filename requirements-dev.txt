@@ -1,7 +1,11 @@
 pytest==8.*
-fakeredis==2.*
 pytest-cov==6.*
 pytest-timeout==2.*
-sqlalchemy==2.0.41
-redis==5.2.1
 pytest-html==4.*
+fakeredis==2.*
+redis==5.2.1
+sqlalchemy==2.0.41
+python-dotenv==1.1.0
+grpcio==1.72.0
+grpcio-tools==1.72.0
+protobuf>=5.26

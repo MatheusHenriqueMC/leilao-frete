@@ -9,7 +9,7 @@ $dirs = "services\auction", "services\auth", "services\notification"
 
 if ($Filtro -eq "") {
     & $python -m pytest @dirs -q
-    Start-Process "$(Resolve-Path relatorio-testes.html)"
+    if (Test-Path relatorio-testes.html) { Start-Process "$(Resolve-Path relatorio-testes.html)" }
 } else {
     & $python -m pytest @dirs -k "$Filtro" -s
 }

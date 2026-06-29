@@ -88,6 +88,33 @@ def pytest_runtest_logstart(nodeid, location):
     _inplace(f"  \033[93m...\033[0m {nome} {GRAY}{leader}{RESET}")
 
 
+def _ensure_stubs():
+    """Gera os stubs gRPC (auth_pb2 etc.) se ainda nao existem. Eles nao vao no
+    git; sem isso os testes de auth/notification falham com ModuleNotFoundError."""
+    import os, subprocess
+    base = os.path.dirname(__file__)
+    protos = os.path.join(base, "protos")
+    for svc, proto in (("auth", "auth.proto"),
+                       ("notification", "notification.proto"),
+                       ("auction", "auction.proto")):
+        gen = os.path.join(base, "services", svc, "generated")
+        marker = os.path.join(gen, proto.replace(".proto", "_pb2.py"))
+        if os.path.exists(marker):
+            continue
+        os.makedirs(gen, exist_ok=True)
+        try:
+            subprocess.run([sys.executable, "-m", "grpc_tools.protoc",
+                            "-I" + protos, "--python_out=" + gen,
+                            "--grpc_python_out=" + gen, os.path.join(protos, proto)],
+                           check=True)
+        except Exception as e:
+            print(f"Aviso: nao consegui gerar stubs de {svc}: {e}")
+
+
+# roda no import do conftest raiz -> antes dos conftests dos servicos serem carregados
+_ensure_stubs()
+
+
 def pytest_configure(config):
     global _tr
     try:
