@@ -1,13 +1,7 @@
-"""
-Helpers reutilizaveis para os testes do auction-service.
-Importados diretamente nos modulos de teste (nao e fixture do pytest).
-"""
-
 import os
 import sys
 import threading
 
-# Garante que services/auction/ esteja no path para importar state, notifier, etc.
 _auction_root = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 if _auction_root not in sys.path:
     sys.path.insert(0, _auction_root)
@@ -44,9 +38,7 @@ def novo_estado(valor_inicial: float = 10_000.0, leilao_id: int = 1) -> AuctionS
 
 def run_concurrent(fn, n_threads: int) -> list:
     """
-    Dispara n_threads threads usando Barrier (soltam juntas) e devolve
-    a lista de resultados retornados por fn(thread_index).
-    fn deve retornar um valor; o resultado e coletado de forma thread-safe.
+    Dispara n_threads threads e devolve a lista de resultados retornados por fn(thread_index).
     """
     barrier = threading.Barrier(n_threads)
     resultados = []

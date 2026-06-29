@@ -1,12 +1,3 @@
-"""
-Testes de integracao pub/sub do notification-service: publicar em leilao:<id>
-entrega o AuctionUpdate ao assinante daquele canal, com isolamento entre leiloes.
-
-Montagem: um fakeredis.FakeServer compartilhado entre publisher e subscriber
-(sem isso o fakeredis nao entrega as mensagens); SubscribeUpdates e um gerador,
-entao roda numa thread daemon e FakeContext controla is_active() para encerra-lo
-apos o evento esperado. pytest-timeout protege contra travas de stream.
-"""
 
 import json
 import queue
@@ -36,13 +27,11 @@ class FakeContext:
 
 @pytest.fixture()
 def fake_server():
-    # Bus unico: publisher e subscriber enxergam as mesmas mensagens.
     return fakeredis.FakeServer()
 
 
 @pytest.fixture()
 def pub_redis(fake_server):
-    # Cliente para publicar eventos (faz o papel do auction-service).
     return fakeredis.FakeStrictRedis(server=fake_server)
 
 
@@ -66,14 +55,12 @@ EVENTO_BASE = {
 }
 
 
-# Publica um evento (com overrides opcionais) no canal do leilao.
 def _publish(pub_redis, leilao_id: int, extra: dict | None = None):
     evento = {**EVENTO_BASE, "leilao_id": leilao_id, **(extra or {})}
     pub_redis.publish(f"leilao:{leilao_id}", json.dumps(evento))
     return evento
 
 
-# Helper: inicia thread daemon que coleta max_items updates numa Queue.
 def subscribe_thread(servicer, leilao_id: int, transportadora_id: str,
                      max_items: int = 1) -> tuple[queue.Queue, FakeContext]:
     ctx = FakeContext()
@@ -106,7 +93,6 @@ def subscribe_thread(servicer, leilao_id: int, transportadora_id: str,
 @pytest.mark.timeout(5)
 def test_subscribe_recebe_auction_update(servicer, pub_redis, record_property):
     """Streaming gRPC: assinante de leilão:42 recebe o AuctionUpdate correto."""
-    # O assinante de leilao:42 recebe o AuctionUpdate com os campos corretos.
     result_q, _ = subscribe_thread(servicer, 42, "transportadora_x")
 
     time.sleep(0.15)
@@ -127,7 +113,6 @@ def test_subscribe_recebe_auction_update(servicer, pub_redis, record_property):
 @pytest.mark.timeout(5)
 def test_subscribe_entrega_flag_encerrado(servicer, pub_redis):
     """Streaming gRPC: a flag encerrado=True chega intacta ao assinante."""
-    # A flag encerrado=True chega intacta ao assinante.
     result_q, _ = subscribe_thread(servicer, 99, "trans_final")
 
     time.sleep(0.15)
@@ -144,7 +129,6 @@ def test_subscribe_entrega_flag_encerrado(servicer, pub_redis):
 @pytest.mark.timeout(5)
 def test_isolamento_leilao_a_nao_chega_em_b(fake_server, pub_redis, monkeypatch, record_property):
     """Isolamento gRPC: evento do leilão:1 não vaza para quem assina leilão:2."""
-    # Evento em leilao:1 nao pode vazar para quem assina leilao:2.
     import server as srv
     monkeypatch.setattr(
         "server.redis.from_url",
@@ -170,7 +154,6 @@ def test_isolamento_leilao_a_nao_chega_em_b(fake_server, pub_redis, monkeypatch,
 @pytest.mark.timeout(5)
 def test_subscribe_recebe_multiplos_eventos(servicer, pub_redis, record_property):
     """Streaming gRPC: eventos em sequência chegam todos e na ordem correta."""
-    # Eventos publicados em sequencia chegam todos, na ordem.
     result_q, _ = subscribe_thread(servicer, 7, "trans_multi", max_items=3)
 
     time.sleep(0.15)

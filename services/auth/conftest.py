@@ -1,7 +1,3 @@
-"""
-Configuracao do pytest do auth-service: poe a raiz do servico e os stubs gRPC
-gerados no sys.path para que 'database' e 'server' sejam importaveis flat.
-"""
 
 import os
 import sys
