@@ -1,12 +1,3 @@
-"""
-Testes unitarios do Notifier (pub/sub com fakeredis): publica no canal correto
-e mantem o isolamento entre leiloes.
-
-Nota de implementacao: nesta versao do fakeredis, publisher e subscriber so
-enxergam as mesmas mensagens se compartilharem um FakeServer. Por isso o helper
-_setup monta o Notifier e o assinante sobre o mesmo servidor em memoria, e
-_collect_one escuta listen() numa thread para receber o evento.
-"""
 
 import json
 import queue
@@ -29,7 +20,6 @@ EVENTO_BASE = {
 }
 
 
-# Helper: cria FakeServer + Notifier + N assinantes, todos no mesmo bus.
 def _setup(monkeypatch, n_subs: int = 1):
     server = fakeredis.FakeServer()
     monkeypatch.setattr(
@@ -41,7 +31,6 @@ def _setup(monkeypatch, n_subs: int = 1):
     return (n, *subs)
 
 
-# Helper: escuta o pubsub numa thread e devolve a primeira mensagem real.
 def _collect_one(pubsub, timeout: float = 2.0):
     q: queue.Queue = queue.Queue()
 
@@ -62,7 +51,6 @@ def _collect_one(pubsub, timeout: float = 2.0):
 
 def test_publica_no_canal_do_leilao(monkeypatch, record_property):
     """Pub/sub: evento publicado em leilão:7 chega ao assinante do canal certo."""
-    # Evento publicado em leilao:7 chega ao assinante de leilao:7.
     n, sub = _setup(monkeypatch)
     ps = sub.pubsub(ignore_subscribe_messages=True)
     ps.subscribe("leilao:7")
@@ -80,7 +68,6 @@ def test_publica_no_canal_do_leilao(monkeypatch, record_property):
 
 def test_publish_retorna_numero_de_receptores(monkeypatch, record_property):
     """Pub/sub: publish retorna o número de assinantes que receberam o evento."""
-    # publish retorna quantos assinantes receberam o evento.
     n, sub = _setup(monkeypatch)
     ps = sub.pubsub(ignore_subscribe_messages=True)
     ps.subscribe("leilao:3")
@@ -94,7 +81,6 @@ def test_publish_retorna_numero_de_receptores(monkeypatch, record_property):
 
 def test_publish_encerrado_carrega_flag(monkeypatch):
     """Pub/sub: a flag encerrado=True viaja intacta no evento publicado."""
-    # A flag encerrado=True viaja intacta no evento.
     n, sub = _setup(monkeypatch)
     ps = sub.pubsub(ignore_subscribe_messages=True)
     ps.subscribe("leilao:5")
@@ -110,7 +96,6 @@ def test_publish_encerrado_carrega_flag(monkeypatch):
 
 def test_isolamento_entre_leiloes(monkeypatch, record_property):
     """Isolamento: quem assina leilão:1 não recebe evento do leilão:2."""
-    # Quem assina leilao:1 nao recebe evento publicado em leilao:2.
     n, sub = _setup(monkeypatch)
     ps = sub.pubsub(ignore_subscribe_messages=True)
     ps.subscribe("leilao:1")
@@ -125,7 +110,6 @@ def test_isolamento_entre_leiloes(monkeypatch, record_property):
 
 def test_assinante_recebe_proprio_canal_mas_nao_outro(monkeypatch):
     """Isolamento: dois assinantes em canais distintos só veem o próprio."""
-    # Dois assinantes, canais distintos: cada um so ve o seu.
     n, sub1, sub2 = _setup(monkeypatch, n_subs=2)
 
     ps1 = sub1.pubsub(ignore_subscribe_messages=True)

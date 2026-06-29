@@ -1,6 +1,3 @@
-"""
-Adiciona o diretorio tests/ ao sys.path para que helpers.py seja importavel.
-"""
 
 import os
 import sys

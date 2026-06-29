@@ -1,7 +1,3 @@
-"""
-Configuracao do pytest do auction-service: poe a raiz do servico no sys.path
-para que 'state', 'database' e 'notifier' sejam importaveis como modulos flat.
-"""
 
 import os
 import sys

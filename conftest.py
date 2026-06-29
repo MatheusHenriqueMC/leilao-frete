@@ -1,7 +1,4 @@
 # conftest.py -- hooks visuais para a suite de testes
-# Plataforma de Negociacao de Fretes
-# Adiciona: coluna "O que prova" no HTML, cabecalho, banner final no console,
-# feedback rico POR TESTE (linha [OK]/[X] + prova + info), e relatorio HTML.
 
 import re
 import sys
@@ -15,12 +12,12 @@ _ANSI_RE = re.compile("\x1b\\[[0-9;]*m")
 
 
 def _vis_len(s: str) -> int:
-    """Largura VISIVEL de uma string (ignora os codigos de cor ANSI)."""
+    """Tamanho do texto sem contar as cores."""
     return len(_ANSI_RE.sub("", s))
 
 
 def _ascii(s: str) -> str:
-    """Remove acentos/simbolos nao-ASCII (fallback p/ consoles cp1252)."""
+    """Remove acentos e simbolos nao-ASCII."""
     return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
 
 
@@ -33,7 +30,7 @@ def _servico_de(nodeid: str) -> str:
 
 
 def _inplace(text: str):
-    """Escreve SEM quebrar linha, voltando ao inicio (\\r) -> efeito 'ao vivo'."""
+    """Escreve na mesma linha (efeito ao vivo)."""
     alvo = text
     for _ in range(2):
         try:
@@ -46,50 +43,38 @@ def _inplace(text: str):
         except Exception:
             alvo = _ascii(text)
 
-# No Windows o console padrao usa cp1252 e nao consegue imprimir os caracteres
-# de caixa (box-drawing) nem os simbolos [v]. Forca UTF-8 na saida quando possivel
-# para o banner final nao quebrar a sessao com UnicodeEncodeError.
+# tenta usar UTF-8 no terminal
 for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8")
     except Exception:
         pass
 
-# -------------------------------------------------------
-# Armazenamento global dos resultados coletados
-# -------------------------------------------------------
-_resultados_sessao = []  # lista de dicts com info de cada teste
-
-# Referencia ao TerminalReporter — preenchida em pytest_configure
-_tr = None
-
-# Qtd de testes selecionados nesta execucao (def. em modifyitems) e servico do
-# ultimo teste impresso (p/ cabecalho de grupo no modo conciso).
-_n_selecionados = None
-_servico_atual = None
+_resultados_sessao = []  # resultados de cada teste
+_tr = None               # TerminalReporter
+_n_selecionados = None   # total de testes selecionados
+_servico_atual = None    # servico do ultimo teste impresso
 
 
 def pytest_collection_modifyitems(session, config, items):
-    """Guarda quantos testes foram selecionados -> decide modo conciso x detalhado."""
     global _n_selecionados
     _n_selecionados = len(items)
 
 
 def _conciso() -> bool:
-    """True na suite (muitos testes) -> saida ao vivo 1 a 1 com check verde."""
+    """True quando ha muitos testes (modo resumido)."""
     return (_n_selecionados is not None) and (_n_selecionados > 5)
 
 
 def pytest_report_teststatus(report, config):
-    """Suprime o ponto/percentual padrao do pytest no modo conciso, para
-    usarmos nossa propria saida ao vivo (linha 'rodando' -> check)."""
+    # usa nossa saida no lugar dos pontos do pytest
     if _conciso() and report.when == "call":
         return (report.outcome, "", "")
     return None
 
 
 def pytest_runtest_logstart(nodeid, location):
-    """Antes de cada teste (modo conciso): imprime a linha 'rodando' com '...'."""
+    """Mostra o nome do teste antes de ele rodar."""
     global _servico_atual
     if not _conciso():
         return
@@ -103,9 +88,6 @@ def pytest_runtest_logstart(nodeid, location):
     _inplace(f"  \033[93m...\033[0m {nome} {GRAY}{leader}{RESET}")
 
 
-# -------------------------------------------------------
-# Hook: registra o TerminalReporter para escrita limpa
-# -------------------------------------------------------
 def pytest_configure(config):
     global _tr
     try:
@@ -114,9 +96,6 @@ def pytest_configure(config):
         _tr = None
 
 
-# -------------------------------------------------------
-# Hook: cabecalho no relatorio
-# -------------------------------------------------------
 def pytest_report_header(config):
     return [
         "=" * 60,
@@ -126,9 +105,6 @@ def pytest_report_header(config):
     ]
 
 
-# -------------------------------------------------------
-# Hook: coluna extra no HTML (O que prova)
-# -------------------------------------------------------
 def pytest_html_results_table_header(cells):
     try:
         from py.xml import html
@@ -148,20 +124,14 @@ def pytest_html_results_table_row(report, cells):
 def pytest_runtest_makereport(item, call):
     outcome = yield
     report = outcome.get_result()
-    # Salva a docstring no report para o hook da tabela HTML
+    # salva a docstring para usar no HTML
     doc = getattr(item.function, "__doc__", None) or "—"
     report._test_doc = doc.strip()
 
 
-# -------------------------------------------------------
-# Utilitario de escrita no terminal (limpa, sem misturar
-# com os pontos de progresso do pytest)
-# -------------------------------------------------------
 def _write(line: str):
-    """Escreve uma linha limpa via TerminalReporter ou print como fallback."""
+    """Escreve uma linha no terminal."""
     global _tr
-    # Tenta a versao original (com cor/acento) e, se o console nao suportar,
-    # cai para uma versao so-ASCII -- assim a linha nunca some silenciosamente.
     for texto in (line, _ascii(line)):
         if _tr is not None:
             try:
@@ -191,7 +161,7 @@ def _humanizar_nome_console(nome: str) -> str:
 
 
 def _viz_ascii(viz: str) -> str:
-    """Versao textual (ASCII puro, sem cor) do mini-grafico do teste, p/ o terminal."""
+    """Versao texto do mini-grafico, para o terminal."""
     if not viz:
         return ""
     try:
@@ -224,28 +194,25 @@ def _viz_ascii(viz: str) -> str:
     return ""
 
 
-# -------------------------------------------------------
-# Hook: coleta resultados E escreve feedback por teste
-# -------------------------------------------------------
 def pytest_runtest_logreport(report):
-    """Coleta apenas a fase 'call' (o corpo do teste em si)."""
+    """Coleta o resultado de cada teste e escreve no terminal."""
     if report.when != "call":
         return
 
-    nodeid = report.nodeid  # ex: services/auction/tests/test_state.py::test_x
+    nodeid = report.nodeid
     nome_func = nodeid.split("::")[-1] if "::" in nodeid else nodeid
 
-    # Determina o servico pelo caminho
+    # determina o servico pelo caminho
     servico = "outro"
     for svc in ("auction", "auth", "notification"):
         if f"/{svc}/" in nodeid or f"\\{svc}\\" in nodeid or f"/{svc}/" in nodeid.replace("\\", "/"):
             servico = svc
             break
 
-    # Pega docstring salva pelo hook makereport
+    # docstring do teste
     doc = getattr(report, "_test_doc", "")
 
-    # Pega metrica "info" de record_property (lista de tuplas)
+    # metrica "info" (opcional)
     info_str = ""
     for key, val in getattr(report, "user_properties", []):
         if key == "info":
@@ -254,7 +221,7 @@ def pytest_runtest_logreport(report):
 
     duracao_ms = round(report.duration * 1000, 1)
 
-    # Pega metrica "viz" de record_property (lista de tuplas)
+    # metrica "viz" (opcional)
     viz_str = ""
     for key, val in getattr(report, "user_properties", []):
         if key == "viz":

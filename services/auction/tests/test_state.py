@@ -1,8 +1,3 @@
-"""
-Testes unitarios de AuctionState: concorrencia (o lock como fonte de verdade),
-validacao do lance e estado/encerramento. O nucleo aqui e provar que lances
-simultaneos nunca empatam: o Lock serializa quem entra na secao critica.
-"""
 
 import pytest
 
@@ -13,7 +8,6 @@ from helpers import novo_estado, run_concurrent
 
 def test_lances_iguais_so_um_vence(record_property):
     """Lances iguais simultâneos: o lock garante que só um vence."""
-    # N threads disparam o mesmo valor juntas: o lock garante que so um vence.
     N = 20
     for _ in range(100):  # repete para flagrar flakiness de race condition
         state = novo_estado()
@@ -27,7 +21,6 @@ def test_lances_iguais_so_um_vence(record_property):
 
 def test_estresse_valores_variados(record_property):
     """Concorrência: lances variados simultâneos deixam o estado consistente."""
-    # Valores distintos e concorrentes: o estado final fica consistente.
     N = 30
     state = novo_estado(valor_inicial=50_000.0)
 
@@ -52,7 +45,6 @@ def test_estresse_valores_variados(record_property):
 
 def test_primeiro_lance_igual_ao_inicial_rejeitado():
     """Validação: lance igual ao valor inicial é rejeitado."""
-    # Lance precisa ser menor que o valor inicial, nunca igual.
     state = novo_estado(valor_inicial=10_000)
     ok, msg, _ = state.registrar_lance(10_000, "a")
     assert ok is False
@@ -68,7 +60,6 @@ def test_primeiro_lance_menor_que_inicial_aceito():
 
 def test_lance_igual_ao_teto_atual_rejeitado():
     """Validação: empatar com o menor lance atual é rejeitado."""
-    # Empatar com o menor lance atual nao basta: tem que ser estritamente menor.
     state = novo_estado(valor_inicial=10_000)
     state.registrar_lance(9_000, "a")
     ok, _, _ = state.registrar_lance(9_000, "b")
@@ -86,7 +77,6 @@ def test_lance_maior_que_teto_rejeitado():
 @pytest.mark.parametrize("valor", [0, -100, -1])
 def test_valor_invalido_rejeitado(valor):
     """Validação: valores zero ou negativos são sempre rejeitados."""
-    # Valores zero ou negativos sao sempre rejeitados.
     state = novo_estado()
     ok, _, _ = state.registrar_lance(valor, "a")
     assert ok is False
@@ -95,7 +85,6 @@ def test_valor_invalido_rejeitado(valor):
 @pytest.mark.parametrize("tid", ["", "   "])
 def test_transportadora_id_invalido_rejeitado(tid):
     """Validação: id de transportadora vazio ou em branco é rejeitado."""
-    # Id vazio ou so com espacos e considerado invalido.
     state = novo_estado()
     ok, _, _ = state.registrar_lance(9_000, tid)
     assert ok is False
@@ -103,7 +92,6 @@ def test_transportadora_id_invalido_rejeitado(tid):
 
 def test_lance_em_leilao_encerrado_rejeitado():
     """Encerramento: nenhum lance entra após o leilão encerrado."""
-    # Depois de encerrado nao entra mais lance.
     state = novo_estado()
     state.encerrar_leilao()
     ok, msg, _ = state.registrar_lance(5_000, "a")
@@ -115,7 +103,6 @@ def test_lance_em_leilao_encerrado_rejeitado():
 
 def test_obter_status_sem_lances():
     """Estado: sem lances, o status reporta o valor inicial e nenhum líder."""
-    # Sem lances, o status reporta o valor inicial e nenhum lider.
     state = novo_estado(valor_inicial=10_000)
     status = state.obter_status()
     assert status["menor_lance"] == 10_000
@@ -145,7 +132,6 @@ def test_obter_status_apos_encerramento():
 
 def test_encerrar_leilao_com_vencedor():
     """Encerramento: quem deu o menor lance vence com valor e total corretos."""
-    # Quem deu o menor lance vence; o resultado carrega valor e total.
     state = novo_estado(valor_inicial=10_000)
     state.registrar_lance(8_000, "transp_a")
     state.registrar_lance(7_000, "transp_b")
@@ -158,7 +144,6 @@ def test_encerrar_leilao_com_vencedor():
 
 def test_encerrar_leilao_sem_nenhum_lance():
     """Encerramento: sem lances não há vencedor e o valor volta ao inicial."""
-    # Sem lances nao ha vencedor; valor final volta ao inicial.
     state = novo_estado(valor_inicial=10_000)
     resultado = state.encerrar_leilao()
     assert resultado["teve_vencedor"] is False
