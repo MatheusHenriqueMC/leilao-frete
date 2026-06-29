@@ -193,8 +193,6 @@ Na primeira execução, o script:
 3. Gera os stubs gRPC de cada serviço em `services/<svc>/generated/`
 4. Roda os testes e, ao final da suite completa, gera e abre o **`relatorio-testes.html`**
 
-> O `.venv` e o `relatorio-testes.html` não são versionados (estão no `.gitignore`).
-
 ## Equipe
 
 Equipe 14 (tema da Equipe 09): Ágata · Daniel Ramos · Felipe Leite · Matheus Henrique · Matheus Stepple
