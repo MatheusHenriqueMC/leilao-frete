@@ -81,7 +81,6 @@ leilao-frete/
 │   ├── pages/                  # Login, AdminDashboard, AdminPage,
 │   │                           #   TransportadoraDashboard, AuctionPage
 │   └── components/             # StatusPanel, BidHistory, modais, toasts (MUI)
-├── docs/                       # SETUP.md (rodar), REDES.md (apresentação), TESTES.md (plano de testes)
 ├── docker-compose.yml
 └── README.md
 ```
@@ -97,7 +96,7 @@ Cada serviço tem seu próprio `Dockerfile` e `requirements.txt`, gerando os stu
 
 Resumo: `docker-compose up --build` (backend) e, em outro terminal, `cd frontend && npm install && npm run dev` (frontend). Acesse `http://localhost:5173`.
 
-Passo a passo completo, credenciais e solução de problemas em **[docs/SETUP.md](docs/SETUP.md)**.
+Credenciais padrão do admin: `admin` / `admin123` (o admin cria as contas de transportadora). As variáveis de ambiente estão em `.env.example`.
 
 ---
 
