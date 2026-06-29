@@ -160,13 +160,12 @@ Suíte focada nos conceitos de Sistemas Distribuídos do projeto (não em cobert
 ```bash
 pip install -r requirements-dev.txt
 
-# Suite completa (saida ao vivo + banner + relatorio HTML)
-./run_tests.ps1                      # Windows (PowerShell)
-python -m pytest services/auction services/auth services/notification
+# Suite completa (gera e abre o relatorio)
+./run_tests.ps1
 
-# Um teste especifico (detalhe so no terminal)
+# Um teste especifico
+./run_tests.ps1 lances_iguais
 python -m pytest "services/auction/tests/test_state.py::test_lances_iguais_so_um_vence" -s
-./run_tests.ps1 lances_iguais        # por palavra-chave
 ```
 
 Cada serviço tem seu próprio `tests/` e `conftest.py` (por causa dos imports flat). A suíte completa gera o **`relatorio-testes.html`** (relatório visual, abre no navegador) com o resultado e o detalhamento de cada teste.
