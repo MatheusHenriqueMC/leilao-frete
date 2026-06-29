@@ -3,7 +3,7 @@ import { io, type Socket } from 'socket.io-client'
 import type {
   AuctionStatus, BidItem, BidResponse, AuctionUpdate, CloseResponse,
   LoginResponse, AuctionSummary, AuctionDetail, CreateAuctionResult,
-  ResolveCodeResult, CreateCarrierResult,
+  ResolveCodeResult, CreateCarrierResult, CarrierInfo,
 } from '../types'
 
 const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL ?? 'http://localhost:5000'
@@ -28,6 +28,7 @@ export function useSocket() {
   const [carrierHistory, setCarrierHistory]       = useState<AuctionSummary[]>([])
   const [resolveCodeResult, setResolveCodeResult] = useState<ResolveCodeResult | null>(null)
   const [createCarrierResult, setCreateCarrierResult] = useState<CreateCarrierResult | null>(null)
+  const [carrierInfo, setCarrierInfo]                 = useState<CarrierInfo | null>(null)
 
   const [error, setError] = useState<string | null>(null)
 
@@ -47,6 +48,7 @@ export function useSocket() {
     socket.on('carrier_history_response',(d: { leiloes: AuctionSummary[] }) => setCarrierHistory(d.leiloes))
     socket.on('resolve_code_response',   (d: ResolveCodeResult)    => setResolveCodeResult(d))
     socket.on('create_carrier_response', (d: CreateCarrierResult)  => setCreateCarrierResult(d))
+    socket.on('get_carrier_response',    (d: CarrierInfo)          => setCarrierInfo(d))
 
     socket.on('status_response',  (d: AuctionStatus) => setStatus(d))
     socket.on('history_response', (d: { lances: BidItem[] }) => setHistory(d.lances))
@@ -137,13 +139,18 @@ export function useSocket() {
     socketRef.current?.emit('resolve_code', { join_code })
   }, [])
 
-  const createCarrier = useCallback((username: string, password: string) => {
-    socketRef.current?.emit('create_carrier', { username, password })
+  const createCarrier = useCallback((username: string, password: string, cnpj: string, email: string, telefone: string) => {
+    socketRef.current?.emit('create_carrier', { username, password, cnpj, email, telefone })
+  }, [])
+
+  const fetchCarrierInfo = useCallback((username: string) => {
+    socketRef.current?.emit('get_carrier', { username })
   }, [])
 
   const clearError         = useCallback(() => setError(null), [])
   const clearCreate        = useCallback(() => setCreateResult(null), [])
   const clearCreateCarrier = useCallback(() => setCreateCarrierResult(null), [])
+  const clearCarrierInfo   = useCallback(() => setCarrierInfo(null), [])
 
   return {
     connected,
@@ -153,11 +160,12 @@ export function useSocket() {
     loginResponse, createResult, auctionsList, auctionDetail,
     carrierHistory, resolveCodeResult,
     error,
-    createCarrierResult, countdownEvent,
+    createCarrierResult, carrierInfo, countdownEvent,
     // actions
     login, createAuction, createCarrier, joinAuction, placeBid,
     requestStatus, requestHistory, closeAuction, startCountdown, cancelCountdown,
     listAuctions, fetchAuctionDetail, fetchCarrierHistory, resolveCode,
-    clearError, clearCreate, clearCreateCarrier,
+    fetchCarrierInfo,
+    clearError, clearCreate, clearCreateCarrier, clearCarrierInfo,
   }
 }

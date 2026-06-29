@@ -213,9 +213,34 @@ def on_create_carrier(data):
         return
     try:
         resp = get_auth_stub().CreateCarrier(
-            auth_pb2.CreateCarrierRequest(username=username, password=password)
+            auth_pb2.CreateCarrierRequest(
+                username=username,
+                password=password,
+                cnpj=data.get("cnpj", "").strip(),
+                email=data.get("email", "").strip(),
+                telefone=data.get("telefone", "").strip(),
+            )
         )
         emit("create_carrier_response", {"sucesso": resp.sucesso, "mensagem": resp.mensagem})
+    except grpc.RpcError as e:
+        emit("error", {"mensagem": f"Erro: {e.details()}"})
+
+
+@socketio.on("get_carrier")
+def on_get_carrier(data):
+    username = data.get("username", "").strip()
+    if not username:
+        emit("get_carrier_response", {"encontrado": False})
+        return
+    try:
+        resp = get_auth_stub().GetCarrier(auth_pb2.GetCarrierRequest(username=username))
+        emit("get_carrier_response", {
+            "encontrado": resp.encontrado,
+            "username":   resp.username,
+            "cnpj":       resp.cnpj,
+            "email":      resp.email,
+            "telefone":   resp.telefone,
+        })
     except grpc.RpcError as e:
         emit("error", {"mensagem": f"Erro: {e.details()}"})
 
@@ -452,6 +477,23 @@ def health():
             "auth": f"{AUTH_HOST}:{AUTH_PORT}",
             "auction": f"{AUCTION_HOST}:{AUCTION_PORT}",
             "notification": f"{NOTIFICATION_HOST}:{NOTIFICATION_PORT}"}
+
+
+@app.route("/docs")
+def docs():
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "gerar_swagger",
+            os.path.join(os.path.dirname(__file__), "..", "..", "gerar_swagger.py"),
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.gerar_html(), 200, {"Content-Type": "text/html; charset=utf-8"}
+    except Exception as e:
+        return f"<pre>Erro ao gerar docs: {e}</pre>", 500
 
 
 if __name__ == "__main__":

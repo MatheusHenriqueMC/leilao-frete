@@ -6,6 +6,7 @@ package auth;
 service AuthService {
   rpc Login (LoginRequest) returns (LoginResponse);
   rpc CreateCarrier (CreateCarrierRequest) returns (CreateCarrierResponse);
+  rpc GetCarrier (GetCarrierRequest) returns (GetCarrierResponse);
 }
 
 // ── Autenticacao ─────────────────────────────────────────────────────────────
@@ -26,9 +27,26 @@ message LoginResponse {
 message CreateCarrierRequest {
   string username = 1;
   string password = 2;
+  string cnpj     = 3;
+  string email    = 4;
+  string telefone = 5;
 }
 
 message CreateCarrierResponse {
   bool sucesso = 1;
   string mensagem = 2;
+}
+
+// ── Busca de Transportadora ──────────────────────────────────────────────────
+
+message GetCarrierRequest {
+  string username = 1;
+}
+
+message GetCarrierResponse {
+  bool encontrado = 1;
+  string username  = 2;
+  string cnpj      = 3;
+  string email     = 4;
+  string telefone  = 5;
 }

@@ -95,9 +95,11 @@ export default function AuctionHistoryModal({ titulo, leiloes, onClose, onFetchD
               <Box>
                 <Typography variant="h6">{detailForSelected.leilao.titulo}</Typography>
                 {detailForSelected.leilao.descricao && (
-                  <Typography variant="body2" color="text.secondary">
-                    {detailForSelected.leilao.descricao}
-                  </Typography>
+                  <Typography
+                    component="div" variant="body2" color="text.secondary"
+                    sx={{ whiteSpace: 'pre-wrap', '& b, & strong': { fontWeight: 700 }, '& i, & em': { fontStyle: 'italic' } }}
+                    dangerouslySetInnerHTML={{ __html: detailForSelected.leilao.descricao }}
+                  />
                 )}
               </Box>
 
@@ -106,9 +108,11 @@ export default function AuctionHistoryModal({ titulo, leiloes, onClose, onFetchD
                   <Typography variant="caption" color="text.disabled" sx={{ textTransform: 'uppercase' }}>
                     Especificações
                   </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {detailForSelected.leilao.especificacoes}
-                  </Typography>
+                  <Typography
+                    component="div" variant="body2" color="text.secondary"
+                    sx={{ whiteSpace: 'pre-wrap', '& b, & strong': { fontWeight: 700 }, '& i, & em': { fontStyle: 'italic' } }}
+                    dangerouslySetInnerHTML={{ __html: detailForSelected.leilao.especificacoes }}
+                  />
                 </Box>
               )}
 

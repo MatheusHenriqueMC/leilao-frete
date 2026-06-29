@@ -51,9 +51,11 @@ export default function StatusPanel({ status, connected }: Props) {
         <Chip size="small" color={statusColor} label={statusLabel} variant="outlined" />
       </Stack>
 
-      <Typography variant="body2" color="text.secondary" mb={3}>
-        {status.descricao_carga}
-      </Typography>
+      <Typography
+        component="div" variant="body2" color="text.secondary" mb={3}
+        sx={{ whiteSpace: 'pre-wrap', '& b, & strong': { fontWeight: 700 }, '& i, & em': { fontStyle: 'italic' } }}
+        dangerouslySetInnerHTML={{ __html: status.descricao_carga }}
+      />
 
       <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 3, rowGap: 2 }}>
         <Box>

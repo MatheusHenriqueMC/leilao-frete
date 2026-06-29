@@ -7,6 +7,7 @@ import CloseIcon from '@mui/icons-material/Close'
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import type { CreateAuctionResult } from '../types'
+import RichTextEditor from './RichTextEditor'
 
 interface Props {
   onClose: () => void
@@ -75,8 +76,9 @@ export default function CreateAuctionModal({ onClose, onCreate, result, onClearR
     setLoading(true)
     onClearResult()
     onCreate({
-      titulo: titulo.trim(), descricao: descricao.trim(),
-      especificacoes: especificacoes.trim(),
+      titulo: titulo.trim(),
+      descricao,
+      especificacoes,
       valor_inicial: valor,
       tempo_segundos: (parseInt(tempoMinutos) || 0) * 60,
       imagens,
@@ -131,15 +133,19 @@ export default function CreateAuctionModal({ onClose, onCreate, result, onClearR
                 label="Título" value={titulo} onChange={e => setTitulo(e.target.value)}
                 placeholder="ex: Carga SP para Recife, 20t" required fullWidth size="small" autoFocus
               />
-              <TextField
-                label="Descrição" value={descricao} onChange={e => setDescricao(e.target.value)}
-                placeholder="Descrição geral do leilão" fullWidth size="small" multiline rows={2}
+              <RichTextEditor
+                label="Descrição"
+                value={descricao}
+                onChange={setDescricao}
+                minRows={3}
+                placeholder="Descrição geral do leilão — use Enter para separar parágrafos"
               />
-              <TextField
-                label="Especificações da carga" value={especificacoes}
-                onChange={e => setEspecificacoes(e.target.value)}
+              <RichTextEditor
+                label="Especificações da carga"
+                value={especificacoes}
+                onChange={setEspecificacoes}
+                minRows={4}
                 placeholder="Peso, dimensões, tipo de produto, restrições..."
-                fullWidth size="small" multiline rows={3}
               />
               <Stack direction="row" spacing={2}>
                 <TextField

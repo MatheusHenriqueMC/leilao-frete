@@ -250,7 +250,7 @@ export default function AdminDashboard() {
       {showCarrier && (
         <CreateCarrierModal
           onClose={() => setShowCarrier(false)}
-          onCreate={createCarrier}
+          onCreate={(u, p, cnpj, email, tel) => createCarrier(u, p, cnpj, email, tel)}
           result={createCarrierResult}
           onClearResult={clearCreateCarrier}
         />

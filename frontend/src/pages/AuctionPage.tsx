@@ -140,7 +140,7 @@ export default function AuctionPage() {
           clearInterval(countdownTimerRef.current!)
           setEncerrandoCountdown(null)
         }
-      }, 1000)
+      }, 2000)
     } else {
       setEncerrandoCountdown(null)
     }
@@ -478,9 +478,11 @@ export default function AuctionPage() {
                 <Typography fontWeight={700} variant="body2" sx={{ textTransform: 'uppercase', letterSpacing: 1.5, mb: 1.5 }}>
                   Especificações
                 </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-line' }}>
-                  {status.especificacoes}
-                </Typography>
+                <Typography
+                  component="div" variant="body2" color="text.secondary"
+                  sx={{ whiteSpace: 'pre-wrap', '& b, & strong': { fontWeight: 700 }, '& i, & em': { fontStyle: 'italic' } }}
+                  dangerouslySetInnerHTML={{ __html: status.especificacoes }}
+                />
               </Box>
               <Divider />
             </>
@@ -532,7 +534,11 @@ export default function AuctionPage() {
                 <Typography fontWeight={700} variant="body2" sx={{ textTransform: 'uppercase', letterSpacing: 1.5, mb: 1.5 }}>
                   Descrição do Leilão
                 </Typography>
-                <Typography variant="body2" color="text.secondary">{status.descricao_carga}</Typography>
+                <Typography
+                  component="div" variant="body2" color="text.secondary"
+                  sx={{ whiteSpace: 'pre-wrap', '& b, & strong': { fontWeight: 700 }, '& i, & em': { fontStyle: 'italic' } }}
+                  dangerouslySetInnerHTML={{ __html: status.descricao_carga }}
+                />
               </Box>
             </>
           )}
