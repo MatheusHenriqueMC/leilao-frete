@@ -81,7 +81,7 @@ leilao-frete/
 │   ├── pages/                  # Login, AdminDashboard, AdminPage,
 │   │                           #   TransportadoraDashboard, AuctionPage
 │   └── components/             # StatusPanel, BidHistory, modais, toasts (MUI)
-├── docs/                       # SETUP.md (rodar), REDES.md (apresentação), TESTES.md (plano de testes)
+├── docs/                       # SETUP.md (rodar), REDES.md (apresentação)
 ├── docker-compose.yml
 └── README.md
 ```
@@ -144,6 +144,31 @@ O gateway gera os stubs dos três protos (é cliente de todos); cada serviço ge
 - **Gateway com long-polling em vez de WebSocket:** o gRPC usa extensões C com suas próprias threads; o `eventlet`/WebSocket do Socket.IO conflita com isso. O long-polling tem latência abaixo de 1s para poucos usuários, suficiente aqui.
 - **Cliente CLI separado:** cumpre o enunciado ao pé da letra (`BID <valor>`, `STATUS`), falando gRPC direto com o auction-service, sem passar pelo gateway.
 - **Persistência fora do lock:** o `INSERT` no Postgres é lento; mantê-lo fora da seção crítica evita travar os outros lances.
+
+## Testes
+
+Suíte focada nos conceitos de Sistemas Distribuídos do projeto (não em cobertura ampla): **sincronização (lock), pub/sub e streaming**. São **28 testes** com `pytest`, que rodam **sem Docker** (usam `fakeredis` e SQLite in-memory).
+
+| Serviço | Cobre |
+|---|---|
+| **auction** | concorrência do `Lock` (lances iguais → 1 vence), validação do lance, estado/encerramento, **teste de carga** (2500 lances simultâneos) e pub/sub do `Notifier` |
+| **notification** | entrega do `AuctionUpdate` via `SubscribeUpdates` (streaming) e isolamento entre leilões |
+| **auth** | login do `AuthServicer` (transportadora, admin e credencial inválida) |
+
+### Como rodar
+
+```bash
+pip install -r requirements-dev.txt
+
+# Suite completa (gera e abre o relatorio)
+./run_tests.ps1
+
+# Um teste especifico
+./run_tests.ps1 lances_iguais
+python -m pytest "services/auction/tests/test_state.py::test_lances_iguais_so_um_vence" -s
+```
+
+Cada serviço tem seu próprio `tests/` e `conftest.py` (por causa dos imports flat). A suíte completa gera o **`relatorio-testes.html`** (relatório visual, abre no navegador) com o resultado e o detalhamento de cada teste.
 
 ## Equipe
 
