@@ -195,7 +195,7 @@ Na primeira execução, o script:
 
 ## Equipe
 
-Equipe 14 (tema da Equipe 09): Ágata · Daniel Ramos · Felipe Leite · Matheus Henrique · Matheus Stepple
+Equipe 14 (tema da Equipe 09): Ágata Giovanna · Daniel Ramos · Felipe Leite · Matheus Henrique · Matheus Stepple
 
 ## Licença
 
